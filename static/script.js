@@ -33,7 +33,7 @@ async function loadData() {
 
 
 function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, char => ({
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
@@ -544,8 +544,34 @@ async function adminPage() {
         </div>
       </section>
         <section class="form-section">
-          <h2>Модерация мероприятий</h2>
+          <h2>Мероприятия</h2>
 
+          <div class="admin-event-tools">
+            <label class="field">
+              Поиск
+              <input id="admin-event-search" type="search"
+                placeholder="Название, ID, организатор, место...">
+            </label>
+            <label class="field">
+              Статус
+              <select id="admin-event-status">
+                <option value="all">Все статусы</option>
+                <option value="pending">На модерации</option>
+                <option value="approved">Опубликовано</option>
+                <option value="rejected">Отклонено</option>
+              </select>
+            </label>
+            <label class="field">
+              Сортировка
+              <select id="admin-event-sort">
+                <option value="date-asc">Сначала ближайшие</option>
+                <option value="date-desc">Сначала поздние</option>
+                <option value="title">По названию</option>
+                <option value="id-desc">По ID: сначала новые</option>
+              </select>
+            </label>
+          </div>
+          <p id="admin-event-count" class="small muted" aria-live="polite"></p>
           <div id="admin-events">
             Загрузка...
           </div>
@@ -568,118 +594,102 @@ async function adminPage() {
     const response = await fetch('/api/admin/events');
     const data = await response.json();
 
-    const eventsContainer =
-  document.querySelector('#admin-events');
+    const eventsContainer = document.querySelector('#admin-events');
+    const searchInput = document.querySelector('#admin-event-search');
+    const statusSelect = document.querySelector('#admin-event-status');
+    const sortSelect = document.querySelector('#admin-event-sort');
+    const countLabel = document.querySelector('#admin-event-count');
 
-eventsContainer.innerHTML =
-  data.events.length
-    ? data.events.map(event => `
-        <article class="account-event">
+    function renderAdminEvents() {
+      const query = searchInput.value.trim().toLocaleLowerCase('ru');
+      const status = statusSelect.value;
+      const sort = sortSelect.value;
 
-          <div>
-            <h3>
-              ${escapeHtml(event.title)}
-            </h3>
+      const filtered = data.events.filter(event => {
+        const searchable = [
+          event.id, event.title, event.summary, event.organizer,
+          event.place, event.room, event.activity, event.type
+        ].join(' ').toLocaleLowerCase('ru');
 
-            <p class="meta">
-              ${dateLabel(event.date)}
-              ·
-              ${event.time}–${event.end}
-              ·
-              ${escapeHtml(event.place)}
-              ·
-              ${escapeHtml(event.room)}
-            </p>
+        return (!query || searchable.includes(query)) &&
+          (status === 'all' || event.status === status);
+      });
 
-            <p class="muted">
-              ${escapeHtml(event.summary)}
-            </p>
+      filtered.sort((a, b) => {
+        if (sort === 'title') return a.title.localeCompare(b.title, 'ru');
+        if (sort === 'id-desc') return b.id - a.id;
+        const first = `${a.date} ${a.time}`;
+        const second = `${b.date} ${b.time}`;
+        return sort === 'date-desc'
+          ? second.localeCompare(first)
+          : first.localeCompare(second);
+      });
 
-            <p>
-              Статус:
-              <strong>${escapeHtml(event.status)}</strong>
-            </p>
+      countLabel.textContent = `Показано: ${filtered.length} из ${data.events.length}`;
 
-            ${
-              event.moderation_comment
-                ? `<p class="error">
-                    Комментарий:
-                    ${escapeHtml(event.moderation_comment)}
-                  </p>`
-                : ''
-            }
-          </div>
+      eventsContainer.innerHTML = filtered.length
+        ? filtered.map(event => `
+          <article class="account-event">
+            <div class="admin-event-main">
+              <h3>${escapeHtml(event.title)}</h3>
+              <p class="meta">
+                ID: ${event.id} · ${dateLabel(event.date)} · ${event.time}–${event.end}
+                · ${escapeHtml(event.place)} · ${escapeHtml(event.room)}
+              </p>
+              <p class="muted">${escapeHtml(event.summary)}</p>
+              <p>Статус: <strong>${({
+                pending: 'На модерации',
+                approved: 'Опубликовано',
+                rejected: 'Отклонено'
+              })[event.status] || escapeHtml(event.status)}</strong></p>
+              ${event.moderation_comment
+                ? `<p class="error">Комментарий: ${escapeHtml(event.moderation_comment)}</p>`
+                : ''}
+            </div>
 
-          <div class="account-event-actions">
-            ${
-              event.image_url
-                ? `
-                  <a
-                    class="admin-event-image-link"
-                    href="${escapeHtml(event.image_url)}"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Открыть изображение в полном размере"
-                  >
-                    <img
-                      class="admin-event-image"
-                      src="${escapeHtml(event.image_url)}"
-                      alt="Обложка мероприятия"
-                    >
-                  </a>
-                `
-                : ''
-            }
-            ${
-              event.status !== 'approved'
-                ? `
-                  <button
-                    class="primary"
-                    onclick="moderateEvent(${event.id}, 'approve')"
-                  >
-                    Одобрить
-                  </button>
-                `
-                : ''
-            }
+            <div class="account-event-actions admin-event-actions">
+              ${event.image_url ? `
+                <a class="admin-event-image-link"
+                  href="${escapeHtml(event.image_url)}"
+                  target="_blank" rel="noopener noreferrer"
+                  title="Открыть изображение в полном размере">
+                  <img class="admin-event-image"
+                    src="${escapeHtml(event.image_url)}" alt="Обложка мероприятия">
+                </a>` : ''}
 
-            ${
-              event.status !== 'rejected'
-                ? `
-                  <button
-                    class="secondary"
-                    onclick="
-                      moderateEvent(
-                        ${event.id},
-                        'reject',
-                        prompt('Причина отклонения:') || ''
-                      )
-                    "
-                  >
-                    Отклонить
-                  </button>
-                `
-                : ''
-            }
+              <a class="secondary" href="#event/${event.id}">Открыть</a>
 
-            ${
-              event.status === 'approved'
-                ? `
-                  <button
-                    class="secondary"
-                    onclick="moderateEvent(${event.id}, 'unpublish')"
-                  >
-                    Снять с публикации
-                  </button>
-                `
-                : ''
-            }
+              ${event.status === 'approved' ? `
+                <a class="secondary" href="/api/admin/events/${event.id}/qr">
+                  Скачать QR
+                </a>` : ''}
 
-          </div>
+              ${event.status !== 'approved' ? `
+                <button class="primary" onclick="moderateEvent(${event.id}, 'approve')">
+                  Одобрить
+                </button>` : ''}
 
-        </article>
-      `).join('')
-    : '<p class="muted">Мероприятий пока нет.</p>';
+              ${event.status !== 'rejected' ? `
+                <button class="secondary"
+                  onclick="moderateEvent(${event.id}, 'reject', prompt('Причина отклонения:') || '')">
+                  Отклонить
+                </button>` : ''}
+
+              ${event.status === 'approved' ? `
+                <button class="secondary"
+                  onclick="moderateEvent(${event.id}, 'unpublish')">
+                  Снять с публикации
+                </button>` : ''}
+            </div>
+          </article>
+        `).join('')
+        : '<p class="muted">По вашему запросу ничего не найдено.</p>';
+    }
+
+    searchInput.addEventListener('input', renderAdminEvents);
+    statusSelect.addEventListener('change', renderAdminEvents);
+    sortSelect.addEventListener('change', renderAdminEvents);
+    renderAdminEvents();
 
     document.querySelector('#admin-stats').innerHTML = `
       <div class="admin-stat">
@@ -743,6 +753,7 @@ async function moderateEvent(eventId, action, comment = "") {
         return;
     }
 
+    await loadData();
     await adminPage();
 }
 
@@ -1146,6 +1157,7 @@ function updateList() {
                     </div>
 
                     <div class="chips">${tags(event)}</div>
+                    <div class="catalog-map" data-event-map="${event.id}"></div>
 
                     <div class="meta">
                       <span>Организатор: ${escapeHtml(event.organizer)}</span>
@@ -1165,6 +1177,15 @@ function updateList() {
         `
     }`;
 
+  const mapSlots = Array.from(results.querySelectorAll('[data-event-map]'));
+  loadRooms().then(rooms => {
+    mapSlots.forEach(slot => {
+      if (!slot.isConnected) return;
+      const event = list.find(e => e.id === Number(slot.dataset.eventMap));
+      const room = findSchoolRoom(rooms, event?.room);
+      if (room) slot.innerHTML = roomMapMarkup(room, true);
+    });
+  }).catch(() => {});
   const reset = document.querySelector('#empty-reset');
   if (reset) reset.onclick = clearFilters;
 }
@@ -1202,7 +1223,12 @@ function catalogPage() {
 }
 
 
+function safeContact(value) {
+  try { const url = new URL(value); return ['https:','http:'].includes(url.protocol) ? value : ''; }
+  catch { return ''; }
+}
 function contactLinks(event) {
+  event = {...event, chat:safeContact(event.chat), contact:safeContact(event.contact)};
   return `
     ${
       event.chat
@@ -1217,6 +1243,7 @@ function contactLinks(event) {
 }
 
 async function joinEvent(eventId) {
+  try {
   const response = await fetch(`/api/events/${eventId}/join`, {
     method: 'POST'
   });
@@ -1229,9 +1256,11 @@ async function joinEvent(eventId) {
   }
 
   return true;
+  } catch { alert('Не удалось связаться с сервером. Попробуйте ещё раз.'); return false; }
 }
 
 async function leaveEvent(eventId) {
+  try {
   const response = await fetch(`/api/events/${eventId}/join`, {
     method: 'DELETE'
   });
@@ -1244,6 +1273,7 @@ async function leaveEvent(eventId) {
   }
 
   return true;
+  } catch { alert('Не удалось связаться с сервером. Попробуйте ещё раз.'); return false; }
 }
 
 async function getMyRegistrations() {
@@ -1346,13 +1376,17 @@ async function eventPage(event, preview = false) {
           ${contactLinks(event)}
         </aside>
       </div>
+      <section class="event-location-card" id="event-location-card"><h2>Место на карте</h2><p class="muted">Загружаем план…</p></section>
     </article>`;
 
+    const detail = document.querySelector('.detail');
+    eventLocationCard(event, detail.querySelector('#event-location-card'));
     if (!preview && !published) {
       document.querySelector('#refresh-event-status').onclick = render;
     }
     if (!preview && published) {
       await commentsPanel(event.id);
+      if (!detail.isConnected) return;
       const joinButton = document.querySelector('#join');
       const leaveButton = document.querySelector('#leave');
 
@@ -1366,7 +1400,10 @@ async function eventPage(event, preview = false) {
         return;
       }
 
-      const registrations = await getMyRegistrations();
+      let registrations;
+      try { registrations = await getMyRegistrations(); }
+      catch { joinButton.disabled = true; joinButton.textContent = 'Обновите страницу, чтобы проверить запись'; return; }
+      if (!detail.isConnected) return;
 
       let isJoined = registrations.some(
         registeredEvent => registeredEvent.id === event.id
@@ -1474,6 +1511,7 @@ function createPage(editEvent = null) {
     <section class="event-form">
       <a class="back" href="#home">← На главную</a>
       <h1>${editEvent ? "Редактировать мероприятие" : "Добавить своё событие"}</h1>
+      ${editEvent ? `<section class="notice"><strong>Исправьте заявку и отправьте её на повторную модерацию.</strong><p>${escapeHtml(editEvent.moderation_comment || 'Администратор отклонил заявку без комментария.')}</p><a href="#event/${editEvent.id}">Вернуться к событию</a></section>` : ''}
 
       <form id="event-form">
         <div class="form-grid">
@@ -1679,7 +1717,12 @@ function createPage(editEvent = null) {
       if (key !== 'image' && key !== 'id' && key !== 'creator_id' &&
           key !== 'count' && key !== 'status' && key !== 'moderation_comment' &&
           form.elements[key]) {
-        form.elements[key].value = String(formValues[key] ?? '');
+        const field = form.elements[key];
+        const value = String(formValues[key] ?? '');
+        if (field.tagName === 'SELECT' && value && !Array.from(field.options).some(o => o.value === value)) {
+          field.add(new Option(value, value));
+        }
+        field.value = value;
       }
     });
   }
@@ -1702,7 +1745,6 @@ function createPage(editEvent = null) {
   let photoInvalid = false;
   let photoChecking = false;
   let existingImageUrl = editEvent?.image_url || null;
-  let removeExistingImage = false;
 
   if (existingImageUrl) {
     imagePreview.src = existingImageUrl;
@@ -1718,7 +1760,6 @@ function createPage(editEvent = null) {
     imageStatus.textContent = '';
     photoInvalid = false;
     photoChecking = false;
-    if (editEvent) removeExistingImage = true;
     existingImageUrl = null;
   };
   imageInput.onchange = async () => {
@@ -1726,7 +1767,10 @@ function createPage(editEvent = null) {
     imagePreview.removeAttribute('src'); imagePanel.hidden = true;
     photoInvalid = false; photoChecking = false; imageStatus.textContent = '';
     const file = imageInput.files[0];
-    if (!file) return;
+    if (!file) {
+      if (existingImageUrl) { imagePreview.src = existingImageUrl; imagePanel.hidden = false; imageStatus.textContent = 'Текущая обложка мероприятия'; }
+      return;
+    }
     imagePanel.hidden = false; // Keep removal available even for invalid files.
     if (!/\.(jpe?g|png|webp)$/i.test(file.name)) {
       imageStatus.textContent = 'Выберите JPG, PNG или WEBP. HEIC и SVG не поддерживаются.'; photoInvalid = true; return;
@@ -1763,13 +1807,21 @@ function createPage(editEvent = null) {
 
   form.onsubmit = async event => {
     event.preventDefault();
+    if (form.dataset.submitting === 'true') return;
+    form.dataset.submitting = 'true';
+    const submitButton = form.querySelector('[type="submit"]');
+    const originalLabel = submitButton.textContent;
+    submitButton.disabled = true;
+    submitButton.textContent = 'Сохраняем…';
+    try {
 
     const data = Object.fromEntries(new FormData(form));
 
     const imageFile = data.image;
     delete data.image;
 
-    const error = document.querySelector('#form-error');
+    const error = form.querySelector('#form-error');
+    error.textContent = '';
 
     if (photoChecking || photoInvalid) {
       error.textContent = photoChecking ? 'Дождитесь проверки фото.' : 'Исправьте ошибку фото или нажмите «Убрать фото».';
@@ -1833,7 +1885,7 @@ function createPage(editEvent = null) {
           body: imageData
         });
 
-        const uploadResult = await uploadResponse.json();
+        const uploadResult = await readResponse(uploadResponse);
 
         if (!uploadResponse.ok) {
           error.textContent = uploadResult.error || 'Не удалось загрузить изображение.';
@@ -1841,9 +1893,11 @@ function createPage(editEvent = null) {
         }
 
         imageUrl = uploadResult.image_url;
+        existingImageUrl = imageUrl;
+        imageInput.value = '';
 
-      } catch {
-        error.textContent = 'Не удалось загрузить изображение. Проверьте соединение с сервером.';
+      } catch (failure) {
+        error.textContent = failure.message || 'Не удалось загрузить изображение.';
         return;
       }
     }
@@ -1868,7 +1922,7 @@ function createPage(editEvent = null) {
         }
       );
 
-      const result = await response.json();
+      const result = await readResponse(response);
 
       if (!response.ok) {
         error.textContent = result.error || 'Не удалось создать событие.';
@@ -1880,7 +1934,12 @@ function createPage(editEvent = null) {
       location.hash = `event/${savedEvent.id}`;
 
     } catch (requestError) {
-      error.textContent = 'Сервер недоступен. Запустите Flask-приложение.';
+      error.textContent = requestError.message || 'Не удалось связаться с сервером. Попробуйте ещё раз.';
+    }
+    } finally {
+      form.dataset.submitting = 'false';
+      submitButton.disabled = false;
+      submitButton.textContent = originalLabel;
     }
   };
 }
@@ -1914,8 +1973,8 @@ async function render() {
     }
     catalogPage();
 
-  } else if (route === 'map') {
-    await mapPage();
+  } else if (route === 'map' || route.startsWith('map/')) {
+    await mapPage(Number(route.split('/')[1]) || null);
 
   } else if (route === 'create') {
     createPage();
@@ -1928,6 +1987,7 @@ async function render() {
       if (!event || event.status !== 'rejected' || event.creator_id !== currentUser?.id) {
         content.innerHTML = '<section class="empty"><h1>Редактирование недоступно</h1><p>Редактировать можно только собственные отклонённые мероприятия.</p><a href="#account">Вернуться в личный кабинет</a></section>';
       } else {
+        if (location.hash.slice(1) !== route) return;
         createPage(event);
       }
     } catch {
@@ -1957,6 +2017,7 @@ async function render() {
       return;
     }
 
+    if (location.hash.slice(1) && location.hash.slice(1) !== route) return;
     await eventPage(event);
 
   } else if (route === 'login') {
@@ -2057,7 +2118,7 @@ async function commentsPanel(eventId) {
   try { await refresh(); } catch(e) { status.textContent = e.message; }
 }
 
-async function mapPage() {
+async function mapPage(focusedId = null) {
   content.innerHTML = `<a class="back" href="#catalog">← В каталог</a><h1>Карта событий</h1>
     <p class="muted">Выберите этаж и событие. Точки указаны по номеру кабинета из школьного навигатора.</p>
     <label class="field">Этаж<select id="map-floor">${[0,1,2,3].map(n => `<option value="${n}" ${n===2?'selected':''}>${n}</option>`).join('')}</select></label>
@@ -2070,15 +2131,22 @@ async function mapPage() {
     </div>
     <p class="small muted">Увеличьте карту и прокручивайте её по горизонтали и вертикали.</p>
     <div class="map-layout"><div class="map-scroll" tabindex="0" role="region" aria-label="План школы, прокручиваемая область"><div class="school-map"><img alt="План этажа школы"/><div class="map-pins"></div></div></div><div id="map-events"></div></div><p id="map-message" role="status"></p>`;
+  const mapRoot = content.querySelector('.map-layout');
   try {
     const [roomResponse, eventResponse] = await Promise.all([fetch('/static/maps/rooms.json'), fetch('/api/events')]);
     if (!roomResponse.ok || !eventResponse.ok) throw new Error('Не удалось загрузить карту');
     const rooms = await roomResponse.json(), mapEvents = await eventResponse.json();
-    const normalize = name => String(name).trim().toLowerCase().replace(/^с(?=\d)/, 'c');
-    const findRoom = event => rooms.find(r => normalize(r.name) === normalize(event.room));
+    let focused = mapEvents.find(e => e.id === focusedId);
+    if (focusedId && !focused) {
+      const response = await fetch(`/api/events/${focusedId}`);
+      if (response.ok) { focused = await response.json(); mapEvents.push(focused); }
+    }
+    if (!mapRoot.isConnected) return;
+    const findRoom = event => findSchoolRoom(rooms,event.room);
     const image = content.querySelector('.school-map img');
     const pins = content.querySelector('.map-pins');
     const select = content.querySelector('#map-floor');
+    if (focused && findRoom(focused)) select.value = findRoom(focused).floor;
     const zoom = content.querySelector('#map-zoom');
     const mapCanvas = content.querySelector('.school-map');
     const scroll = content.querySelector('.map-scroll');
@@ -2104,7 +2172,7 @@ async function mapPage() {
       image.onload = () => {
         pins.innerHTML = visible.map((e,i) => {
           const r = findRoom(e);
-          return `<a class="map-pin" href="#event/${e.id}" title="${escapeHtml(e.title)}" style="left:${100*r.x/r.reference_width}%;top:${100*r.y/r.reference_height}%">${i+1}</a>`;
+          return `<a class="map-pin ${e.id === focusedId ? 'focused-pin' : ''}" href="#event/${e.id}" title="${escapeHtml(e.title)}" style="left:${100*r.x/r.reference_width}%;top:${100*r.y/r.reference_height}%">${i+1}</a>`;
         }).join('');
       };
       pins.innerHTML = '';
@@ -2115,5 +2183,46 @@ async function mapPage() {
       content.querySelector('#map-events').innerHTML = `<h2>На этаже</h2>${visible.length ? visible.map((e,i)=>`<div>${i+1}. ${link(e)}</div>`).join('') : '<p>Нет событий на этом этаже.</p>'}<h2>Без точки на карте</h2>${unplaced.length ? unplaced.map(link).join('') : '<p>Все события размещены.</p>'}`;
     }
     select.onchange = draw; draw();
-  } catch(e) { content.querySelector('#map-message').textContent = e.message; }
+  } catch(e) { if (mapRoot.isConnected) content.querySelector('#map-message').textContent = e.message; }
+}
+
+async function readResponse(response) {
+  const data = await response.json().catch(() => null);
+  if (!data) throw new Error(`Сервер вернул ошибку (${response.status}). Попробуйте снова позже.`);
+  return data;
+}
+let roomsPromise;
+function loadRooms() {
+  if (!roomsPromise) roomsPromise = fetch('/static/maps/rooms.json').then(r => {
+    if (!r.ok) throw new Error('Не удалось загрузить план школы');
+    return r.json();
+  }).catch(error => { roomsPromise = null; throw error; });
+  return roomsPromise;
+}
+function findSchoolRoom(rooms, name) {
+  const normalize = value => String(value || '').trim().toLowerCase().replace(/^с(?=\d)/, 'c');
+  return rooms.find(room => normalize(room.name) === normalize(name));
+}
+function roomMapMarkup(room, compact = false) {
+  const w = room.reference_width * (compact ? 0.32 : 0.48);
+  const h = w * 0.56;
+  const x = Math.max(0, Math.min(room.reference_width-w, room.x-w/2));
+  const y = Math.max(0, Math.min(room.reference_height-h, room.y-h/2));
+  const radius = room.reference_width * 0.009;
+  return `<div class="room-map-preview"><svg viewBox="${x} ${y} ${w} ${h}" role="img" aria-label="Кабинет ${escapeHtml(room.name)}, этаж ${room.floor}">
+    <image href="/static/maps/floor_${room.floor}.png" width="${room.reference_width}" height="${room.reference_height}"/>
+    <circle cx="${room.x}" cy="${room.y}" r="${radius*1.8}" fill="#fff" fill-opacity="0.8"/>
+    <circle cx="${room.x}" cy="${room.y}" r="${radius}" fill="#a43e25" stroke="#fff" stroke-width="${radius/4}"/>
+    </svg><span class="map-caption">📍 ${escapeHtml(room.name)} · этаж ${room.floor}</span></div>`;
+}
+async function eventLocationCard(event, host) {
+  try {
+    const rooms = await loadRooms();
+    if (!host.isConnected) return;
+    const room = findSchoolRoom(rooms,event.room);
+    host.innerHTML = `<h2>Место на карте</h2>${room ? roomMapMarkup(room) : `<p>${escapeHtml(event.place)} · ${escapeHtml(event.room)}</p><p class="muted">Для этого места точка на школьном плане не найдена. Уточните место у организатора.</p>`}
+      <a class="secondary" href="${event.id ? '#map/'+event.id : '#map'}">Открыть карту школы</a>`;
+  } catch {
+    if (host.isConnected) host.innerHTML = '<h2>Место на карте</h2><p class="muted">План временно недоступен. Попробуйте открыть карту ещё раз.</p><a href="#map">Карта школы</a>';
+  }
 }
