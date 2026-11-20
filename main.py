@@ -863,7 +863,7 @@ def event_form(data, user_id, existing=None):
                     raise ValueError()
             except ValueError:
                 return None, (jsonify(error="Контакты должны быть корректными HTTP(S) ссылками"), 400)
-    photo = data.get("image_url") or None
+    photo = data.get("image_url", existing.image_url if existing else None) or None
     if photo and not (existing and photo == existing.image_url):
         match = re.fullmatch(r"/media/([a-f0-9]{32})\.jpg", photo) if isinstance(photo, str) else None
         if not match:
