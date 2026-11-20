@@ -664,7 +664,7 @@ async function adminPage() {
               <a class="secondary" href="#event/${event.id}">Открыть</a>
 
               ${event.status === 'approved' ? `
-                <a class="secondary" href="/api/admin/events/${event.id}/qr">
+                <a class="secondary" href="/api/events/${event.id}/qr?download=1">
                   Скачать QR
                 </a>` : ''}
 
@@ -1381,6 +1381,17 @@ async function eventPage(event, preview = false) {
         </aside>
       </div>
       <section class="event-location-card" id="event-location-card"><h2>Место на карте</h2><p class="muted">Загружаем план…</p></section>
+      ${!preview && published ? `
+        <section class="event-qr-card" aria-labelledby="event-qr-title">
+          <div>
+            <h2 id="event-qr-title">Поделиться мероприятием</h2>
+            <p class="muted">Отсканируйте QR-код, чтобы открыть страницу этого события.</p>
+            <a class="secondary" href="/api/events/${event.id}/qr?download=1" download>
+              Скачать QR-код
+            </a>
+          </div>
+          <img src="/api/events/${event.id}/qr" alt="QR-код мероприятия ${event.id}" width="180" height="180">
+        </section>` : ''}
     </article>`;
 
     const detail = document.querySelector('.detail');
