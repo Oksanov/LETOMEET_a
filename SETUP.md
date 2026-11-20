@@ -1,3 +1,7 @@
+# Combined version
+
+See UPDATE-NOTES.md for the current merged feature list, local data handling, and validation results.
+
 # LETOMEET updated app
 
 ## What is included
@@ -43,7 +47,7 @@ Eleven integration tests cover registration/login, consumed/expired codes, throt
 
 Comments show the latest 100 entries, newest first, and preserve escaped text. Signed-in users can remove their own comments; admins can remove any comment. No email notifications, reporting workflow, pagination, or comment editing is included. Existing card customization is available at event creation; an owner editing workflow is not added. Uploaded image database rows are not automatically garbage collected when an abandoned event form is discarded. Add storage quotas/cleanup and backup retention suitable for your school.
 
-The database-backed rate counters are suitable for modest traffic; multi-worker concurrent updates are not atomic. Before wider deployment, add centralized atomic throttling at the gateway or in Redis, database uniqueness/atomic consumption for concurrent OTP verification, retention cleanup for counters/codes, and provider-level sending limits. The retained app's account/event APIs can disclose school email addresses to authorized administrators; review school privacy and moderation requirements before launch.
+Rate counters use conditional database updates, and verification consumes a code with a conditional delete. These paths have been tested sequentially with SQLite; concurrent PostgreSQL behavior has not been exercised here. Retention cleanup and provider sending limits remain deployment concerns. The retained app's account/event APIs can disclose school email addresses to authorized administrators; review school privacy and moderation requirements before launch.
 
 ## Changed files
 main.py; static/script.js; static/style.css (additive styles); templates/index.html (map link); requirements.txt (Pillow); new static/maps/*; test_features.py; migrations/001_event_features.sql; UPDATE-NOTES.md; .env.example; SETUP.md. Original uploaded ZIPs and GitHub repository were not modified.
