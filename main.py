@@ -615,7 +615,14 @@ def protect_requests():
 
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         origin = request.headers.get("Origin")
-        if origin and origin != request.host_url.rstrip("/"):
+        public_url = os.environ.get("PUBLIC_BASE_URL", "").strip()
+        expected_origin = (
+            public_url.rstrip("/")
+            if public_url
+            else request.host_url.rstrip("/")
+        )
+        
+        if origin and origin != expected_origin:
             return jsonify(error="Недопустимый источник запроса"), 403
     if request.path.startswith("/api/auth/") and request.method == "POST" and request.path.endswith(("/request", "/verify")):
         data = request.get_json(silent=True) or {}
