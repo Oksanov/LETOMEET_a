@@ -1,6 +1,4 @@
-# Объединённая версия LETOMEET — 20 ноября 2026
-
-Объединены LETOMEET(1).zip и LETOMEET-main(2).zip.
+# LETOMEET — 20 ноября 2026
 
 ## Возможности
 
