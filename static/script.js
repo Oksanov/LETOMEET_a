@@ -17,6 +17,7 @@ let events = [];
 let filterGroups = [];
 let eventsView = "map";
 let selectedMapFloor;
+let selectedMapPeriod = 'all';
 let schoolRoomsRequest;
 let mapResizeObserver;
 
@@ -62,35 +63,43 @@ function tags(event) {
 }
 
 
+function locationMatches(value, selected) {
+  return value === selected || String(value || '').startsWith(selected + ' · ');
+}
+
 function filterFields() {
-  return filterGroups.map(group =>
-    `<fieldset class="filter-group">
-      <legend>${escapeHtml(group.label)}</legend>
-      <div class="chips">
-        ${group.options.map(option =>
-          `<label class="chip">
-            <input type="checkbox" name="${group.key}" value="${escapeHtml(option)}"
-              ${filters[group.key].includes(option) ? 'checked' : ''}>
-            ${escapeHtml(option)}
-          </label>`
-        ).join('')}
-      </div>
-    </fieldset>`
-  ).join('') +
-  `<fieldset class="filter-group">
-    <legend>Когда</legend>
-    <div class="form-grid">
-      <label class="field">С даты
-        <input type="date" name="from" value="${filters.from}">
-      </label>
-      <label class="field">По дату
-        <input type="date" name="to" value="${filters.to}">
-      </label>
-    </div>
-    <p id="date-error" class="error small" hidden>
-      Дата окончания должна быть не раньше начала.
-    </p>
-  </fieldset>`;
+  const checkbox = (group, value, label = value) => `<label class="chip"><input type="checkbox" name="${escapeHtml(group.key)}" value="${escapeHtml(value)}" ${(filters[group.key] || []).includes(value) ? 'checked' : ''}>${escapeHtml(label)}</label>`;
+  const branch = (group, node) => {
+    if (!node.children?.length) return checkbox(group, node.value, node.label);
+    const body = node.children.map(child => branch(group, child)).join('');
+    // Boarding houses and outdoor locations use the same expandable controls.
+    if (node.value === 'Улица' || node.value === 'Дом пансиона' || node.value.startsWith('Дом пансиона · ')) {
+      return `<details class="filter-branch" ${locationNodeValues(node.children).some(value => (filters[group.key] || []).includes(value)) ? 'open' : ''}><summary>${escapeHtml(node.label)}</summary><div class="filter-branch-body">${body}</div></details>`;
+    }
+    return `<div class="filter-location-section"><h3>${escapeHtml(node.label)}</h3><div class="chips">${body}</div></div>`;
+  };
+  return filterGroups.map(group => {
+    const nested = new Set(locationNodeValues(group.children || []));
+    const options = group.options.filter(option => !nested.has(option));
+    return `<fieldset class="filter-group"><legend>${escapeHtml(group.label)}</legend><div class="chips">${options.map(option => checkbox(group, option)).join('')}</div>${(group.children || []).map(node => branch(group, node)).join('')}</fieldset>`;
+  }).join('') + `<fieldset class="filter-group"><legend>Когда</legend><div class="form-grid"><label class="field">С даты<input type="date" name="from" value="${filters.from}"></label><label class="field">По дату<input type="date" name="to" value="${filters.to}"></label></div><p id="date-error" class="error small" hidden>Дата окончания должна быть не раньше начала.</p></fieldset>`;
+}
+
+function locationNodeValues(nodes) {
+  return nodes.flatMap(node => [node.value, ...locationNodeValues(node.children || [])]);
+}
+
+function placeSelectField(group) {
+  const nested = new Set(locationNodeValues(group.children || []));
+  const option = (value, label = value) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+  const branches = (group.children || []).map(node => {
+    const children = node.children || [];
+    if (children.some(child => child.children?.length)) {
+      return `<optgroup label="${escapeHtml(node.label)}">${option(node.value, 'Любой дом')}</optgroup>` + children.map(child => `<optgroup label="${escapeHtml(node.label + ' · ' + child.label)}">${option(child.value, child.label + ' — другое место')}${(child.children || []).map(leaf => option(leaf.value, leaf.label)).join('')}</optgroup>`).join('');
+    }
+    return `<optgroup label="${escapeHtml(node.label)}">${option(node.value, 'Другое место на улице')}${children.map(child => option(child.value, child.label)).join('')}</optgroup>`;
+  }).join('');
+  return `<label class="field">Место<select name="place" required><optgroup label="В школе">${group.options.filter(value => !nested.has(value)).map(value => option(value)).join('')}</optgroup>${branches}</select></label>`;
 }
 
 
@@ -148,12 +157,12 @@ function updateAuthPanel() {
 
   panel.innerHTML = `
     <div class="auth-user">
-      <span>
-        Вы вошли как
-        <strong>${escapeHtml(currentUser.username)}</strong>
-      </span>
-
-        <a href="#account">Личный кабинет</a>
+      <a class="auth-account" href="#account" aria-label="${escapeHtml(currentUser.username)} — личный кабинет">
+        ${currentUser.avatar_url
+          ? `<img class="auth-avatar" src="${escapeHtml(currentUser.avatar_url)}" alt="">`
+          : `<span class="auth-avatar auth-avatar-placeholder" style="background-color:${profileColor(currentUser.avatar_color, '#e3cd86')}" aria-hidden="true">${escapeHtml(Array.from(currentUser.username || '?')[0].toUpperCase())}</span>`}
+        <span class="auth-account-name">${escapeHtml(currentUser.username)}</span>
+      </a>
 
         ${
           currentUser.role === 'admin'
@@ -541,7 +550,7 @@ async function adminPage() {
       </div>
 
       <section class="form-section">
-        <h2>Пользователи</h2>
+        <h2>Админы</h2>
 
         <div id="admin-users">
           Загрузка...
@@ -562,7 +571,7 @@ async function adminPage() {
                 <option value="all">Все статусы</option>
                 <option value="pending">На модерации</option>
                 <option value="approved">Опубликовано</option>
-                <option value="rejected">Отклонено</option>
+                <option value="rejected">Отклонено</option><option value="revision">В редакции пользователя</option><option value="past">Прошедшие</option>
               </select>
             </label>
             <label class="field">
@@ -631,8 +640,7 @@ async function adminPage() {
 
       countLabel.textContent = `Показано: ${filtered.length} из ${data.events.length}`;
 
-      eventsContainer.innerHTML = filtered.length
-        ? filtered.map(event => `
+      const renderEvent = event => `
           <article class="account-event">
             <div class="admin-event-main">
               <h3>${escapeHtml(event.title)}</h3>
@@ -644,7 +652,7 @@ async function adminPage() {
               <p>Статус: <strong>${({
                 pending: 'На модерации',
                 approved: 'Опубликовано',
-                rejected: 'Отклонено'
+                rejected: 'Отклонено', revision: 'В редакции пользователя', past: 'Прошедшие'
               })[event.status] || escapeHtml(event.status)}</strong></p>
               ${event.moderation_comment
                 ? `<p class="error">Комментарий: ${escapeHtml(event.moderation_comment)}</p>`
@@ -668,16 +676,13 @@ async function adminPage() {
                   Скачать QR
                 </a>` : ''}
 
-              ${event.status !== 'approved' ? `
+              ${event.status === 'pending' ? `
                 <button class="primary" onclick="moderateEvent(${event.id}, 'approve')">
                   Одобрить
                 </button>` : ''}
 
-              ${event.status !== 'rejected' ? `
-                <button class="secondary"
-                  onclick="moderateEvent(${event.id}, 'reject', prompt('Причина отклонения:') || '')">
-                  Отклонить
-                </button>` : ''}
+              ${event.status === 'pending' ? `
+                <button class="secondary" onclick="moderateEvent(${event.id}, 'reject')">Отклонить</button>` : ''}
 
               ${event.status === 'approved' ? `
                 <button class="secondary"
@@ -686,8 +691,17 @@ async function adminPage() {
                 </button>` : ''}
             </div>
           </article>
-        `).join('')
-        : '<p class="muted">По вашему запросу ничего не найдено.</p>';
+        `;
+      const modules = [
+        ['К модерации', ['pending']],
+        ['Отмодерировано', ['approved', 'rejected']],
+        ['В редакции пользователя', ['revision']],
+        ['Прошедшие', ['past']]
+      ];
+      eventsContainer.innerHTML = modules.map(([label, statuses], index) => {
+        const items = filtered.filter(event => statuses.includes(event.status));
+        return `<details class="admin-event-module" ${index === 0 ? 'open' : ''}><summary>${label} <span class="tag">${items.length}</span></summary>${items.map(renderEvent).join('') || '<p class="muted">Нет событий.</p>'}</details>`;
+      }).join('');
     }
 
     searchInput.addEventListener('input', renderAdminEvents);
@@ -736,29 +750,44 @@ async function adminPage() {
   }
 }
 
-async function moderateEvent(eventId, action, comment = "") {
-    const response = await fetch(
-        `/api/admin/events/${eventId}/${action}`,
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                comment: comment
-            })
-        }
-    );
+async function moderationDecision() {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'moderation-dialog';
+  dialog.setAttribute('aria-labelledby', 'moderation-heading');
+  dialog.innerHTML = `<h2 id="moderation-heading">Куда отправить?</h2><div class="moderation-destinations"><button type="button" data-destination="rejected">Полностью отклонить</button><button type="button" data-destination="revision">На редакцию юзеру</button><button type="button" data-cancel>Отмена</button></div><form hidden><label class="field">Комментарий пользователю<textarea name="comment" required maxlength="2000" rows="4"></textarea></label><p class="small muted">Комментарий будет виден автору события.</p><div class="actions"><button class="primary" type="submit">Отправить</button><button type="button" data-cancel>Отмена</button></div></form>`;
+  document.body.append(dialog);
+  return new Promise(resolve => {
+    let destination, result = null;
+    dialog.querySelectorAll('[data-destination]').forEach(button => button.onclick = () => {
+      destination = button.dataset.destination;
+      dialog.querySelector('.moderation-destinations').hidden = true;
+      dialog.querySelector('form').hidden = false;
+      dialog.querySelector('h2').textContent = destination === 'revision' ? 'Комментарий для доработки' : 'Причина полного отклонения';
+      dialog.querySelector('textarea').focus();
+    });
+    dialog.querySelectorAll('[data-cancel]').forEach(button => button.onclick = () => dialog.close());
+    dialog.querySelector('form').onsubmit = event => {
+      event.preventDefault();
+      const comment = dialog.querySelector('textarea').value.trim();
+      if (!comment) return;
+      result = {destination, comment}; dialog.close();
+    };
+    dialog.addEventListener('close', () => { dialog.remove(); resolve(result); }, {once:true});
+    dialog.showModal();
+  });
+}
 
-    const data = await response.json();
-
-    if (!response.ok) {
-        alert(data.error || "Ошибка");
-        return;
-    }
-
-    await loadData();
-    await adminPage();
+async function moderateEvent(eventId, action) {
+  const decision = action === 'approve' ? {} : await moderationDecision();
+  if (!decision) return;
+  try {
+    const response = await fetch(`/api/admin/events/${eventId}/${action}`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(decision)
+    });
+    const data = await readResponse(response);
+    if (!response.ok) throw new Error(data.error || 'Не удалось изменить статус');
+    await loadData(); await adminPage();
+  } catch (error) { alert(error.message); }
 }
 
 async function accountPage() {
@@ -785,29 +814,7 @@ async function accountPage() {
 
       <h1>Личный кабинет</h1>
 
-      <section class="form-section">
-        <h2>Профиль</h2>
-
-        <div class="account-info">
-          <p>
-            <strong>Имя</strong><br>
-            ${escapeHtml(currentUser.username)}
-          </p>
-
-          <p>
-            <strong>Почта</strong><br>
-            ${escapeHtml(currentUser.email)}
-          </p>
-
-          <p>
-            <strong>Роль</strong><br>
-            ${currentUser.role === 'admin'
-              ? 'Администратор'
-              : 'Ученик'}
-          </p>
-        </div>
-      </section>
-
+      ${profileMarkup()}
       <section class="form-section">
         <h2>Мои мероприятия</h2>
 
@@ -828,6 +835,7 @@ async function accountPage() {
   `;
 
   try {
+    bindProfile();
     const [myEvents, registrations] = await Promise.all([
       getMyEvents(),
       getMyRegistrations()
@@ -890,11 +898,11 @@ async function accountPage() {
             </p>
 
             <p class="meta">
-              Статус: <strong>${({pending:'На модерации',approved:'Опубликовано',rejected:'Отклонено'})[event.status] || escapeHtml(event.status)}</strong>
+              Статус: <strong>${({pending:'На модерации',approved:'Опубликовано',rejected:'Отклонено',revision:'В редакции пользователя',past:'Прошедшие'})[event.status] || escapeHtml(event.status)}</strong>
             </p>
 
-            ${event.status === 'rejected' && event.moderation_comment
-              ? `<p class="error">Причина отклонения: ${escapeHtml(event.moderation_comment)}</p>`
+            ${event.moderation_comment
+              ? `<p class="error">Комментарий администратора: ${escapeHtml(event.moderation_comment)}</p>`
               : ''}
           </div>
 
@@ -905,9 +913,8 @@ async function accountPage() {
             >
               Открыть
             </a>
-            ${event.status === 'rejected'
-              ? `<a class="secondary" href="#edit/${event.id}">Исправить и отправить повторно</a>`
-              : ''}
+            ${!['rejected','past'].includes(event.status) ? `<a class="secondary" href="#edit/${event.id}">Редактировать</a>` : ''}
+            <button class="secondary" type="button" onclick="deleteOwnedEvent(${event.id})">Удалить</button>
           </div>
 
         </article>
@@ -1029,21 +1036,34 @@ function clearFilters() {
 
 
 function homePage() {
-  content.innerHTML = `
-    <section class="home" aria-label="Главная">
-      <div class="home-choices">
-        <a class="home-choice" href="#map">
-          <span>К событиям</span>
-          <span class="arrow" aria-hidden="true">↓</span>
-        </a>
-        <a class="home-choice" href="#create">
-          <span>Добавить своё<br>событие</span>
-          <span class="arrow" aria-hidden="true">↓</span>
-        </a>
-      </div>
-    </section>`;
+  content.innerHTML = `<section class="home home-start" aria-label="LETOMEET"><div class="home-choices"><a class="home-choice" href="#map"><span>Карта событий</span><span class="arrow" aria-hidden="true">↗</span></a><a class="home-choice" href="#create"><span>Добавить своё событие</span><span class="arrow" aria-hidden="true">+</span></a></div></section>`;
 }
 
+function welcomePage() {
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const featured = trendingEvents(events,today);
+  content.innerHTML = `<section class="home" aria-label="Главная">
+    <div class="home-intro"><div><h1>Найдите друг друга</h1></div><a class="secondary" href="#map">На карту ↗</a></div>
+    <section class="trending" aria-label="Популярные события" aria-roledescription="карусель">
+      <div class="trending-heading"><div><h2>В центре внимания</h2><p class="small muted">Предстоящие события - по числу записавшихся</p></div>
+      ${featured.length>1 ? '<div class="slider-controls"><button id="slide-prev" aria-label="Предыдущее событие">←</button><output id="slide-position" aria-live="polite">1 / '+featured.length+'</output><button id="slide-next" aria-label="Следующее событие">→</button></div>' : ''}</div>
+      ${featured.length ? `<div class="trending-track" tabindex="0" aria-label="Листайте события свайпом или стрелками">${featured.map((e,i)=>`<article class="trend-slide" aria-label="${i+1} из ${featured.length}">
+        <div class="trend-copy"><span class="trend-badge">${Number(e.count)>0 ? `${Number(e.count)} участников` : 'Будь первым участником'}</span><h3>${escapeHtml(e.title)}</h3><p>${escapeHtml(e.summary)}</p><p class="small">${e.regular?'Каждую неделю · ':''}${dateLabel(e.date)} · ${escapeHtml(e.time)}<br>${escapeHtml(e.place)} · ${escapeHtml(e.room)}</p><a class="primary" href="#event/${e.id}">Подробнее о событии ↗</a></div>
+        <div class="trend-art">${e.image_url?`<img src="${escapeHtml(e.image_url)}" alt="" ${i?'loading="lazy"':''} decoding="async">`:`<span aria-hidden="true">${escapeHtml(e.card_emoji||'✦')}</span><span class="trend-art-label">LETOMEET / ${String(i+1).padStart(2,'0')}</span>`}</div></article>`).join('')}</div>` : '<div class="trend-empty"><p>Пока нет предстоящих опубликованных событий.</p><a class="primary" href="#create">Предложить событие</a></div>'}
+    </section>
+    <div class="home-choices"><a class="home-choice" href="#catalog"><span>Каталог событий</span><span class="arrow" aria-hidden="true">↗</span></a><a class="home-choice" href="#create"><span>Добавить своё событие</span><span class="arrow" aria-hidden="true">+</span></a></div>
+  </section>`;
+  const track=content.querySelector('.trending-track');
+  if (!track || featured.length<2) return;
+  let index=0;
+  const prev=content.querySelector('#slide-prev'), next=content.querySelector('#slide-next'), position=content.querySelector('#slide-position');
+  const update=()=>{index=Math.round(track.scrollLeft/(track.clientWidth+16)); prev.disabled=index===0;next.disabled=index===featured.length-1;position.textContent=`${index+1} / ${featured.length}`;};
+  const move=delta=>track.scrollTo({left:Math.max(0,Math.min(featured.length-1,index+delta))*(track.clientWidth+16),behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+  prev.onclick=()=>move(-1);next.onclick=()=>move(1);
+  track.onkeydown=e=>{if(e.target!==track)return;if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();move(e.key==='ArrowRight'?1:-1);}};
+  track.onscroll=update;update();
+}
 
 function filtersPage() {
   content.innerHTML = `
@@ -1075,7 +1095,8 @@ function filteredEvents() {
     .filter(event =>
       filterGroups.every(group =>
         !filters[group.key].length ||
-        filters[group.key].includes(event[group.key])
+        (group.key === 'place' ? filters.place.some(value => locationMatches(event.place, value)) :
+          filters[group.key].includes(event[group.key]))
       ) &&
       (!filters.from || event.date >= filters.from) &&
       (!filters.to || event.date <= filters.to)
@@ -1161,7 +1182,7 @@ function updateList() {
                     </div>
 
                     <div class="chips">${tags(event)}</div>
-                    <div class="catalog-map" data-event-map="${event.id}"></div>
+
 
                     <div class="meta">
                       <span>Организатор: ${escapeHtml(event.organizer)}</span>
@@ -1181,15 +1202,6 @@ function updateList() {
         `
     }`;
 
-  const mapSlots = Array.from(results.querySelectorAll('[data-event-map]'));
-  loadRooms().then(rooms => {
-    mapSlots.forEach(slot => {
-      if (!slot.isConnected) return;
-      const event = list.find(e => e.id === Number(slot.dataset.eventMap));
-      const room = findSchoolRoom(rooms, event?.room);
-      if (room) slot.innerHTML = roomMapMarkup(room, true);
-    });
-  }).catch(() => {});
   const reset = document.querySelector('#empty-reset');
   if (reset) reset.onclick = clearFilters;
 }
@@ -1200,16 +1212,15 @@ function catalogPage() {
   content.innerHTML = `
     <div class="heading">
       <h1>Список событий</h1>
-      <span class="small muted">События LETOMEET</span>
     </div>
 
     <div class="catalog-layout">
-      <aside class="sidebar">
+      <aside class="sidebar"><div class="catalog-filters"><h2>Фильтры событий</h2>
         <form id="filter-form">
           ${filterFields()}
           <button class="plain" type="button" id="reset">Сбросить фильтры</button>
         </form>
-      </aside>
+      </div></aside>
 
       <section id="results" aria-label="События" aria-live="polite"></section>
     </div>`;
@@ -1317,11 +1328,11 @@ async function eventPage(event, preview = false) {
 
     ${preview ? '<p class="notice">Предпросмотр заявки. Она ещё не отправлена и не опубликована.</p>' : ''}
     ${!preview && !published ? `<section class="notice" role="status">
-      <h2>${event.status === 'rejected' ? 'Заявка отклонена' : 'Событие сохранено — ожидает одобрения'}</h2>
-      <p>Пока событие не опубликовано, оно не отображается в каталоге и на карте. Запись и комментарии станут доступны после одобрения администратором.</p>
+      <h2>${({rejected:'Заявка отклонена',revision:'Событие возвращено на доработку',past:'Событие завершено'})[event.status] || 'Событие сохранено — ожидает одобрения'}</h2>
+      <p>${event.status === 'past' ? 'Событие завершилось и перенесено в архив.' : event.status === 'rejected' ? 'Заявка полностью отклонена. При необходимости создайте новое событие.' : 'Пока событие не опубликовано, оно не отображается в каталоге и на карте. После исправления отправьте его на модерацию.'}</p>
       ${event.moderation_comment ? `<p>Комментарий администратора: ${escapeHtml(event.moderation_comment)}</p>` : ''}
       <a href="#account">Мои события</a>
-      ${event.status === 'rejected' && currentUser && event.creator_id === currentUser.id
+      ${event.status === 'revision' && currentUser && event.creator_id === currentUser.id
         ? ` · <a href="#edit/${event.id}">Исправить мероприятие</a>`
         : ''}
       ${currentUser?.role === 'admin' ? ' · <a href="#admin">Открыть модерацию</a>' : ''}
@@ -1329,18 +1340,12 @@ async function eventPage(event, preview = false) {
     </section>` : ''}
 
 
+    ${!preview && currentUser?.id === event.creator_id ? `<p class="notice owner-event-notice">${['pending','approved','revision'].includes(event.status) ? 'Это ваше мероприятие, в <a href="#account">личном кабинете</a> его можно редактировать. Участвуете вы в нём автоматически.' : 'Это ваше мероприятие.'}</p>` : ''}
     <article class="detail">
-  ${
-    event.image_url
-      ? `<img
-          class="event-detail-image"
-          src="${escapeHtml(event.image_url)}"
-          alt="Обложка мероприятия"
-        >`
-      : ''
-  }
-
-      <h1>${escapeHtml(event.title)}</h1>
+      <div class="detail-grid">
+        <div class="event-detail-main">
+      <div class="event-title-row"><h1>${escapeHtml(event.title)}</h1></div>
+      ${!preview && !['rejected','past'].includes(event.status) && currentUser?.id === event.creator_id ? `<div class="owner-event-actions">${!['rejected','past'].includes(event.status) ? `<a class="secondary" href="#edit/${event.id}">Редактировать</a>` : ''}<button class="secondary" type="button" onclick="deleteOwnedEvent(${event.id})">Удалить событие</button></div>` : ''}
 
       <div class="meta">
         <span>${dateLabel(event.date)} · ${event.time}–${event.end}</span>
@@ -1348,9 +1353,13 @@ async function eventPage(event, preview = false) {
         ${event.regular ? '<span>Каждую неделю</span>' : ''}
       </div>
 
-      <div class="detail-grid">
-        <div>
           <p class="description">${escapeHtml(event.description)}</p>
+
+          <section class="event-organizer" aria-label="Организатор и контакты">
+          <h2>Контакты</h2>
+          <p>Организатор: ${escapeHtml(event.organizer)}</p>
+          ${contactLinks(event)}
+          </section>
 
           ${
             (preview || !published)
@@ -1372,19 +1381,19 @@ async function eventPage(event, preview = false) {
         </div>
 
         <aside class="detail-side">
+          ${event.image_url ? `<img class="event-detail-avatar" src="${escapeHtml(event.image_url)}" alt="Фото события">` : ''}
           <h2>Теги</h2>
           <div class="chips">${tags(event)}</div>
 
-          <h2>Контакты</h2>
-          <p>Организатор: ${escapeHtml(event.organizer)}</p>
-          ${contactLinks(event)}
+
         </aside>
       </div>
-      <section class="event-location-card" id="event-location-card"><h2>Место на карте</h2><p class="muted">Загружаем план…</p></section>
+      <details class="event-location-compact"><summary>Место на карте</summary><section class="event-location-card" id="event-location-card"><p class="muted">Загружаем план…</p></section></details>
+      ${!preview ? eventShareMarkup(event) : ''}
       ${!preview && published ? `
         <section class="event-qr-card" aria-labelledby="event-qr-title">
           <div>
-            <h2 id="event-qr-title">Поделиться мероприятием</h2>
+            <h2 id="event-qr-title">QR-код события</h2>
             <p class="muted">Отсканируйте QR-код, чтобы открыть страницу этого события.</p>
             <a class="secondary" href="/api/events/${event.id}/qr?download=1" download>
               Скачать QR-код
@@ -1395,6 +1404,7 @@ async function eventPage(event, preview = false) {
     </article>`;
 
     const detail = document.querySelector('.detail');
+    if (!preview) bindEventSharing(event, detail);
     eventLocationCard(event, detail.querySelector('#event-location-card'));
     if (!preview && !published) {
       document.querySelector('#refresh-event-status').onclick = render;
@@ -1426,7 +1436,7 @@ async function eventPage(event, preview = false) {
 
   if (isJoined) {
     joinButton.textContent = 'Вы идёте · открыть контакты';
-    leaveButton.style.display = 'inline-block';
+    leaveButton.style.display = currentUser?.id === event.creator_id ? 'none' : 'inline-block';
   }
 
   // Кнопка "Я пойду"
@@ -1449,7 +1459,7 @@ async function eventPage(event, preview = false) {
     isJoined = true;
 
     joinButton.textContent = 'Вы идёте · открыть контакты';
-    leaveButton.style.display = 'inline-block';
+    leaveButton.style.display = currentUser?.id === event.creator_id ? 'none' : 'inline-block';
 
     event.count += 1;
 
@@ -1498,6 +1508,10 @@ function selectField(key, label, options) {
 
 
 function createPage(editEvent = null) {
+  if (editEvent && ['rejected','past'].includes(editEvent.status)) {
+    content.innerHTML = '<p class="notice">Это событие нельзя редактировать. Создайте новое событие.</p><a href="#create">Добавить событие</a>';
+    return;
+  }
   if (!currentUser) {
     content.innerHTML = `
       <section class="empty">
@@ -1526,7 +1540,7 @@ function createPage(editEvent = null) {
     <section class="event-form">
       <a class="back" href="#home">← На главную</a>
       <h1>${editEvent ? "Редактировать мероприятие" : "Добавить своё событие"}</h1>
-      ${editEvent ? `<section class="notice"><strong>Исправьте заявку и отправьте её на повторную модерацию.</strong><p>${escapeHtml(editEvent.moderation_comment || 'Администратор отклонил заявку без комментария.')}</p><a href="#event/${editEvent.id}">Вернуться к событию</a></section>` : ''}
+      ${editEvent ? `<section class="notice"><strong>Изменения должны пройти модерацию.</strong><p>После сохранения событие будет скрыто из каталога и карты до одобрения. Записи участников и комментарии сохранятся.</p><p>${escapeHtml(editEvent.moderation_comment || '')}</p><a href="#event/${editEvent.id}">Вернуться к событию</a></section>` : ''}
 
       <form id="event-form">
         <div class="form-grid">
@@ -1613,9 +1627,9 @@ function createPage(editEvent = null) {
           </label>
 
           <div class="field full">
-            <label for="event-image">Обложка мероприятия — необязательно</label>
+            <label for="event-image">Фото события — необязательно</label>
             <input id="event-image" type="file" name="image" accept="image/jpeg,image/png,image/webp" aria-describedby="image-help image-status">
-            <span id="image-help" class="small muted">JPG, PNG или WEBP · до 4 МБ · до 20 мегапикселей. Любые пропорции; рекомендуем 1600 × 900 пикселей (16:9). HEIC и SVG не поддерживаются. На карточке края могут обрезаться.</span>
+            <span id="image-help" class="small muted">JPG, PNG или WEBP · до 4 МБ · до 20 мегапикселей. Перед загрузкой выберите квадратную область фотографии. HEIC и SVG не поддерживаются. На карточке края могут обрезаться.</span>
             <div id="image-preview-panel" hidden>
               <img id="image-preview" class="upload-preview" alt="Предпросмотр обложки">
               <button type="button" class="secondary" id="remove-image">Убрать фото</button>
@@ -1631,7 +1645,7 @@ function createPage(editEvent = null) {
           <div class="form-grid">
             <label class="field">
               Дата
-              <input type="date" name="date" required>
+              <input type="text" name="date" inputmode="numeric" placeholder="ДД.ММ.ГГГГ" pattern="[0-9]{2}[.][0-9]{2}[.][0-9]{4}" maxlength="10" required>
             </label>
 
             <label class="field">
@@ -1644,15 +1658,15 @@ function createPage(editEvent = null) {
 
             <label class="field">
               Начало
-              <input type="time" name="time" required>
+              <input type="text" name="time" inputmode="numeric" placeholder="ЧЧ:ММ, например 17:30" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5" required>
             </label>
 
             <label class="field">
               Окончание
-              <input type="time" name="end" required>
+              <input type="text" name="end" inputmode="numeric" placeholder="ЧЧ:ММ, например 18:30" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5" required>
             </label>
 
-            ${selectField('place', 'Место', placeGroup.options)}
+            ${placeSelectField(placeGroup)}
 
             <label class="field">
               Где именно
@@ -1705,6 +1719,7 @@ function createPage(editEvent = null) {
           </div>
         </section>
 
+        <p class="muted">После сохранения на странице события появятся кнопки для отправки приглашения в Telegram, WhatsApp и другие приложения. Событие станет доступно всем после модерации.</p>
         <p class="error" id="form-error" role="alert"></p>
 
         <button class="primary" type="submit">
@@ -1715,6 +1730,17 @@ function createPage(editEvent = null) {
   `;
 
   const form = document.querySelector('#event-form');
+  // Keep entry formats predictable on systems using an English locale.
+  for (const key of ['date', 'time', 'end']) {
+    const input = form.elements[key];
+    input.addEventListener('input', event => {
+      if (event.inputType?.startsWith('delete')) return;
+      const digits = input.value.replace(/\D/g, '');
+      input.value = key === 'date'
+        ? [digits.slice(0,2),digits.slice(2,4),digits.slice(4,8)].filter(Boolean).join('.')
+        : [digits.slice(0,2),digits.slice(2,4)].filter(Boolean).join(':');
+    });
+  }
   const roomInput = form.elements.room;
   if (roomInput) {
     roomInput.setAttribute('list', 'school-rooms');
@@ -1737,7 +1763,7 @@ function createPage(editEvent = null) {
         if (field.tagName === 'SELECT' && value && !Array.from(field.options).some(o => o.value === value)) {
           field.add(new Option(value, value));
         }
-        field.value = value;
+        field.value = key === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.split('-').reverse().join('.') : value;
       }
     });
   }
@@ -1757,6 +1783,8 @@ function createPage(editEvent = null) {
   const imagePreview = form.querySelector('#image-preview');
   const imageStatus = form.querySelector('#image-status');
   let photoVersion = 0;
+  let croppedEventFile = null;
+  let eventPhotoPreview = null;
   let photoInvalid = false;
   let photoChecking = false;
   let existingImageUrl = editEvent?.image_url || null;
@@ -1769,6 +1797,9 @@ function createPage(editEvent = null) {
 
   form.querySelector('#remove-image').onclick = () => {
     photoVersion++;
+    croppedEventFile = null;
+    if (eventPhotoPreview) URL.revokeObjectURL(eventPhotoPreview);
+    eventPhotoPreview = null;
     imageInput.value = '';
     imagePreview.removeAttribute('src');
     imagePanel.hidden = true;
@@ -1779,38 +1810,23 @@ function createPage(editEvent = null) {
   };
   imageInput.onchange = async () => {
     const version = ++photoVersion;
-    imagePreview.removeAttribute('src'); imagePanel.hidden = true;
-    photoInvalid = false; photoChecking = false; imageStatus.textContent = '';
     const file = imageInput.files[0];
-    if (!file) {
-      if (existingImageUrl) { imagePreview.src = existingImageUrl; imagePanel.hidden = false; imageStatus.textContent = 'Текущая обложка мероприятия'; }
-      return;
-    }
-    imagePanel.hidden = false; // Keep removal available even for invalid files.
-    if (!/\.(jpe?g|png|webp)$/i.test(file.name)) {
-      imageStatus.textContent = 'Выберите JPG, PNG или WEBP. HEIC и SVG не поддерживаются.'; photoInvalid = true; return;
-    }
-    if (file.size > 4 * 1024 * 1024) {
-      imageStatus.textContent = 'Файл больше 4 МБ. Уменьшите его или уберите фото.'; photoInvalid = true; return;
-    }
-    photoChecking = true; imageStatus.textContent = 'Проверяем фото…';
+    if (!file) return;
+    photoChecking = true; photoInvalid = false; imageStatus.textContent = 'Выберите часть фотографии…';
     try {
-      const dataUrl = await new Promise((resolve,reject) => {
-        const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file);
-      });
-      const size = await new Promise((resolve,reject) => {
-        const img = new Image(); img.onload = () => resolve([img.naturalWidth,img.naturalHeight]); img.onerror = reject; img.src = dataUrl;
-      });
-      if (version !== photoVersion) return;
-      if (size[0]*size[1] > 20000000) {
-        photoInvalid = true; imageStatus.textContent = 'Больше 20 мегапикселей. Уменьшите разрешение или уберите фото.'; return;
-      }
-      imagePreview.src = dataUrl;
-      imageStatus.textContent = `${file.name} · ${size[0]} × ${size[1]} · ${(file.size/1024/1024).toFixed(2)} МБ`;
-    } catch(e) {
-      if (version !== photoVersion) return;
-      photoInvalid = true; imageStatus.textContent = 'Не удалось прочитать фото. Выберите другой файл или уберите его.';
-    } finally { if (version === photoVersion) photoChecking = false; }
+      const cropped = await cropImageFile(file, {aspect:1,width:800,title:'Фото события'});
+      if (version !== photoVersion || !form.isConnected) return;
+      if (!cropped) {imageStatus.textContent='Выбор фотографии отменён.';return;}
+      croppedEventFile = cropped;
+      if (eventPhotoPreview) URL.revokeObjectURL(eventPhotoPreview);
+      eventPhotoPreview = URL.createObjectURL(cropped);
+      imagePreview.src = eventPhotoPreview;imagePanel.hidden = false;
+      imageStatus.textContent='Выбранная область фотографии готова к загрузке.';
+    } catch(error) {
+      if (version === photoVersion) imageStatus.textContent=error.message;
+    } finally {
+      if (version === photoVersion) {photoChecking=false;imageInput.value='';}
+    }
   };
 
   form.oninput = () => {
@@ -1831,8 +1847,9 @@ function createPage(editEvent = null) {
     try {
 
     const data = Object.fromEntries(new FormData(form));
+    if (/^\d{2}\.\d{2}\.\d{4}$/.test(data.date)) data.date = data.date.split('.').reverse().join('-');
 
-    const imageFile = data.image;
+    const imageFile = croppedEventFile;
     delete data.image;
 
     const error = form.querySelector('#form-error');
@@ -1909,6 +1926,7 @@ function createPage(editEvent = null) {
 
         imageUrl = uploadResult.image_url;
         existingImageUrl = imageUrl;
+        croppedEventFile = null;
         imageInput.value = '';
 
       } catch (failure) {
@@ -1967,8 +1985,10 @@ async function render() {
   mapResizeObserver?.disconnect();
 
   const hash = location.hash;
-  const route = hash.slice(1) || (location.pathname === '/map' ? 'map' : 'home');
-  navigation.hidden = route === 'home';
+  const eventPath = location.pathname.match(/^\/events\/(\d+)\/?$/);
+  const route = hash.slice(1) || (eventPath ? `event/${eventPath[1]}` :
+    location.pathname === '/map' ? 'map' : location.pathname === '/events' ? 'catalog' : 'home');
+  navigation.hidden = false;
 
   navigation.querySelectorAll('a').forEach(link => {
     link.removeAttribute('aria-current');
@@ -1980,6 +2000,13 @@ async function render() {
 
   if (route === 'home') {
     homePage();
+
+  } else if (route === 'welcome') {
+    try { await loadData(); } catch (error) {
+      if (location.hash === hash) content.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+      return;
+    }
+    if (location.hash === hash) welcomePage();
 
   } else if (route === 'filters') {
     filtersPage();
@@ -2006,8 +2033,8 @@ async function render() {
       const response = await fetch(`/api/events/${id}`, {cache: 'no-store'});
       const event = response.ok ? await response.json() : null;
       if (location.hash !== hash) return;
-      if (!event || event.status !== 'rejected' || event.creator_id !== currentUser?.id) {
-        content.innerHTML = '<section class="empty"><h1>Редактирование недоступно</h1><p>Редактировать можно только собственные отклонённые мероприятия.</p><a href="#account">Вернуться в личный кабинет</a></section>';
+      if (!event || event.creator_id !== currentUser?.id) {
+        content.innerHTML = '<section class="empty"><h1>Редактирование недоступно</h1><p>Редактировать можно только собственные мероприятия.</p><a href="#account">Вернуться в личный кабинет</a></section>';
       } else {
         createPage(event);
       }
@@ -2115,7 +2142,7 @@ async function commentsPanel(eventId) {
     const response = await fetch(`/api/events/${eventId}/comments`);
     if (!response.ok) throw new Error('Не удалось загрузить комментарии');
     const rows = await response.json();
-    panel.querySelector('.comment-list').innerHTML = rows.length ? rows.map(c => `<article class="comment"><strong>${escapeHtml(c.author)}</strong><p>${escapeHtml(c.body)}</p><small>${escapeHtml(new Date(c.created_at).toLocaleString('ru'))}</small>${c.can_delete ? `<button class="plain" data-delete="${c.id}">Удалить</button>` : ''}</article>`).join('') : '<p class="muted">Пока нет комментариев.</p>';
+    panel.querySelector('.comment-list').innerHTML = rows.length ? rows.map(c => `<article class="comment"><div class="comment-author">${avatarMarkup({username:c.author,avatar_url:c.avatar_url},"comment-avatar")}<strong>${escapeHtml(c.author)}</strong></div><p>${escapeHtml(c.body)}</p><small>${escapeHtml(new Date(c.created_at).toLocaleString('ru'))}</small>${c.can_delete ? `<button class="plain" data-delete="${c.id}">Удалить</button>` : ''}</article>`).join('') : '<p class="muted">Пока нет комментариев.</p>';
   }
   panel.onclick = async e => {
     const id = e.target.dataset.delete;
@@ -2163,7 +2190,7 @@ function normalizeRoom(name) {
 }
 
 function roomPosition(room) {
-  return {x: room.x / room.reference_width, y: room.y / room.reference_height};
+  return {x: (room.marker_x ?? room.x) / room.reference_width, y: (room.marker_y ?? room.y) / room.reference_height};
 }
 
 function pinPosition({x, y}) {
@@ -2174,12 +2201,12 @@ function schoolMap() {
   return '<div class="school-map"><img alt=""><div class="map-pins" hidden></div></div>';
 }
 
-function setSchoolFloor(map, floor, status) {
+function setSchoolFloor(map, floor, status, onLoad) {
   const image = map.querySelector('img');
   const pins = map.querySelector('.map-pins');
   pins.hidden = true;
   image.alt = `План школы, этаж ${floor}`;
-  image.onload = () => { pins.hidden = false; };
+  image.onload = () => { pins.hidden = false; onLoad?.(); };
   image.onerror = () => { status.textContent = 'Не удалось загрузить план этажа.'; };
   image.src = `/static/maps/floor_${floor}.png`;
 }
@@ -2208,27 +2235,153 @@ async function loadEventLocation(section, roomName) {
   }
 }
 
+function mapCanvasGeometry(viewWidth, viewHeight, imageWidth, imageHeight, zoom) {
+  const fit = Math.min(viewWidth / imageWidth, viewHeight / imageHeight, 1);
+  const width = imageWidth * fit * zoom / 100;
+  const height = imageHeight * fit * zoom / 100;
+  return {width, height, canvasWidth: Math.max(viewWidth, width),
+    canvasHeight: Math.max(viewHeight, height)};
+}
+
+function mapEventPreviewMarkup(events) {
+  return events.map(event => {
+    const description = Array.from(String(event.description || ''));
+    const excerpt = description.length > 35 ? description.slice(0, 32).join('') + '...' : description.join('');
+    const image = event.image_url ? `<img src="${escapeHtml(event.image_url)}" alt="" loading="lazy">` : '<span class="map-preview-placeholder" aria-hidden="true">✦</span>';
+    return `<article class="map-preview-card">${image}<div class="map-preview-copy"><h3>${escapeHtml(event.title)}</h3><div class="map-preview-tags">${[event.activity, event.type, event.duration].map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div><p>${escapeHtml(excerpt)}</p><a href="#event/${event.id}">Открыть событие ↗</a></div></article>`;
+  }).join('');
+}
+
+function mapPeriodEvents(events, period, now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
+  const part = key => parts.find(value => value.type === key).value;
+  const today = `${part('year')}-${part('month')}-${part('day')}`;
+  const end = new Date(today + 'T12:00:00Z');end.setUTCDate(end.getUTCDate() + 3);
+  const last = end.toISOString().slice(0,10);
+  return events.filter(event => period === 'today' ? event.date === today
+    : period === 'next3' ? event.date > today && event.date <= last : true);
+}
+
+function mapFloorEventSections(events, now = new Date()) {
+  // The school timetable uses Moscow time, including for visitors abroad.
+  const parts = new Intl.DateTimeFormat('en-US', {timeZone: 'Europe/Moscow',
+    year: 'numeric', month: '2-digit', day: '2-digit'}).formatToParts(now);
+  const part = type => parts.find(item => item.type === type).value;
+  const today = `${part('year')}-${part('month')}-${part('day')}`;
+  const ordered = [...events].sort((a, b) =>
+    `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`) || Number(a.id) - Number(b.id));
+  const link = event => `<p><a href="#event/${event.id}">${escapeHtml(event.title)}</a><br><small>${escapeHtml(event.room)} · ${dateLabel(event.date)} · ${escapeHtml(event.time)}</small></p>`;
+  const current = ordered.filter(event => event.date === today);
+  const later = ordered.filter(event => event.date > today);
+  if (!current.length && !later.length) return '<p>Нет событий на этом этаже</p>';
+  return `<section aria-labelledby="map-today-title"><h2 id="map-today-title">Сегодня</h2>${current.map(link).join('') || '<p>Нету событий на сегодня.</p>'}</section>
+    <section aria-labelledby="map-later-title"><h2 id="map-later-title">После</h2>${later.map(link).join('') || '<p>Нет событий позже.</p>'}</section>`;
+}
+
+function bindMapDragging(viewport, zoomControls = null) {
+  const pointers = new Map();
+  let drag = null, pinch = null, suppressClick = false;
+  function pair() {
+    const [a, b] = [...pointers.values()];
+    return {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2,
+      distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))};
+  }
+  function startDrag(id, point, moved = false) {
+    drag = {id, x: point.x, y: point.y, left: viewport.scrollLeft,
+      top: viewport.scrollTop, moved};
+  }
+  viewport.addEventListener('dragstart', event => event.preventDefault());
+  viewport.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    if (!pointers.size) suppressClick = false;
+    pointers.set(event.pointerId, {x: event.clientX, y: event.clientY});
+    if (pointers.size === 1) startDrag(event.pointerId, pointers.get(event.pointerId));
+    if (pointers.size === 2 && zoomControls) {
+      pinch = pair(); drag = null; suppressClick = true;
+      for (const id of pointers.keys()) viewport.setPointerCapture(id);
+      viewport.classList.add('is-dragging');
+    }
+  });
+  viewport.addEventListener('pointermove', event => {
+    if (!pointers.has(event.pointerId)) return;
+    pointers.set(event.pointerId, {x: event.clientX, y: event.clientY});
+    if (pinch && pointers.size >= 2 && zoomControls) {
+      event.preventDefault();
+      const next = pair(), rect = viewport.getBoundingClientRect();
+      zoomControls.set(zoomControls.get() * next.distance / pinch.distance, {
+        x: next.x - rect.left, y: next.y - rect.top,
+        fromX: pinch.x - rect.left, fromY: pinch.y - rect.top});
+      pinch = next;
+      return;
+    }
+    if (!drag || drag.id !== event.pointerId) return;
+    const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 6) return;
+    drag.moved = true; suppressClick = true;
+    viewport.setPointerCapture(event.pointerId);
+    viewport.classList.add('is-dragging');
+    event.preventDefault();
+    viewport.scrollLeft = drag.left - dx;
+    viewport.scrollTop = drag.top - dy;
+  });
+  function finish(event) {
+    if (!pointers.has(event.pointerId)) return;
+    pointers.delete(event.pointerId);
+    pinch = null; drag = null;
+    if (pointers.size === 1) {
+      const [id, point] = [...pointers.entries()][0];
+      startDrag(id, point, suppressClick);
+    }
+    if (!pointers.size) viewport.classList.remove('is-dragging');
+    if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+  }
+  viewport.addEventListener('pointerup', finish);
+  viewport.addEventListener('pointercancel', finish);
+  viewport.addEventListener('lostpointercapture', finish);
+  viewport.addEventListener('pointerleave', event => {
+    if (drag && !drag.moved && !pinch) finish(event);
+  });
+  viewport.addEventListener('wheel', event => {
+    if (!zoomControls) return;
+    event.preventDefault();
+    const rect = viewport.getBoundingClientRect();
+    const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1);
+    zoomControls.set(zoomControls.get() * Math.exp(-Math.max(-200, Math.min(200, pixels)) * 0.002),
+      {x: event.clientX - rect.left, y: event.clientY - rect.top});
+  }, {passive: false});
+  viewport.addEventListener('click', event => {
+    if (!suppressClick || event.detail === 0) return;
+    event.preventDefault(); event.stopImmediatePropagation(); suppressClick = false;
+  }, true);
+}
+
 async function mapPage(focusedId = null) {
   const hash = location.hash;
   content.innerHTML = `<section aria-labelledby="map-title">
     <h1 id="map-title">Карта событий</h1>
     <p class="small muted" id="map-message" role="status">Загружаем карту…</p>
     <div class="map-controls" hidden>
+      <div class="map-period-controls" role="group" aria-label="Когда проходят события">
+        <button type="button" class="secondary" data-map-period="today">Сегодня</button>
+        <button type="button" class="secondary" data-map-period="next3">Следующие 3 дня</button>
+        <button type="button" class="secondary" data-map-period="all">Все</button>
+      </div>
       <label class="field">Этаж<select id="map-floor"></select></label>
       <div class="map-zoom-controls" role="group" aria-label="Масштаб карты">
         <div class="map-zoom-range">
-          <label for="map-zoom">Масштаб</label><input id="map-zoom" type="range" min="50" max="300" step="25" value="100">
+          <label for="map-zoom">Масштаб</label><input id="map-zoom" type="range" min="50" max="300" step="1" value="100">
           <output id="map-zoom-label" for="map-zoom">100%</output>
         </div>
         <div class="map-zoom-buttons">
           <button type="button" class="secondary" id="map-zoom-out" aria-label="Уменьшить карту">−</button>
           <button type="button" class="secondary" id="map-zoom-in" aria-label="Увеличить карту">+</button>
-          <button type="button" class="secondary" id="map-zoom-reset">По ширине</button>
+          <button type="button" class="secondary" id="map-zoom-reset">Вписать карту</button>
         </div>
       </div>
     </div>
-    <div class="map-layout"><div class="map-scroll" tabindex="0" role="region" aria-label="План школы, прокручиваемая область" hidden>
-      ${schoolMap()}
+    <p class="small muted">Перетаскивайте карту мышью или одним пальцем. Приближайте колёсиком мыши, двумя пальцами или кнопками − и +.</p>
+    <div class="map-layout"><div class="map-scroll" tabindex="0" role="region" aria-label="План школы. Перетаскивайте мышью или пальцем; с клавиатуры используйте стрелки" hidden>
+      <div class="map-canvas">${schoolMap()}</div>
     </div>
     <aside id="map-events" aria-label="События на карте"></aside></div>
     <p class="small muted map-unplaced" hidden></p>
@@ -2264,7 +2417,10 @@ async function mapPage(focusedId = null) {
     const eventsByFloor = [[], [], [], []];
     const unplacedEvents = [];
     let unplaced = 0;
-    for (const event of mapEvents) {
+    function groupMapEvents() {
+      eventsByFloor.forEach(events => events.length = 0);
+      unplacedEvents.length = 0;unplaced = 0;
+    for (const event of mapPeriodEvents(mapEvents, selectedMapPeriod)) {
       const room = roomsByName.get(normalizeRoom(event.room));
       if (room) {
         eventsByFloor[room.floor].push({event, ...roomPosition(room)});
@@ -2274,6 +2430,9 @@ async function mapPage(focusedId = null) {
       }
     }
 
+    }
+    groupMapEvents();
+
     const select = page.querySelector('#map-floor');
     const zoom = page.querySelector('#map-zoom');
     const zoomLabel = page.querySelector('#map-zoom-label');
@@ -2282,6 +2441,8 @@ async function mapPage(focusedId = null) {
     const map = page.querySelector('.school-map');
     const pins = page.querySelector('.map-pins');
     const scroll = page.querySelector('.map-scroll');
+    const canvas = page.querySelector('.map-canvas');
+    bindMapDragging(scroll, {get: () => Number(zoom.value), set: applyZoom});
     const picker = page.querySelector('.map-event-picker');
     const pickerEvents = page.querySelector('.map-picker-events');
     const unplacedNote = page.querySelector('.map-unplaced');
@@ -2295,13 +2456,63 @@ async function mapPage(focusedId = null) {
     select.value = focusedRoom ? focusedRoom.floor : (selectedMapFloor ?? defaultFloor);
     if (unplaced) {
       unplacedNote.hidden = false;
-      unplacedNote.textContent = `Событий без точки на плане: ${unplaced}. Их можно открыть в списке событий.`;
+      unplacedNote.textContent = `Событий без точного места: ${unplaced}. Их можно открыть в списке событий.`;
     }
     page.querySelector('.map-controls').hidden = false;
     scroll.hidden = false;
 
+    const preview = document.createElement('div');
+    preview.className = 'map-event-preview';
+    preview.hidden = true;
+    preview.setAttribute('role', 'region');
+    preview.setAttribute('aria-label', 'Описание событий на карте');
+    page.append(preview);
+    let previewTimer;
+    function hidePreview() { clearTimeout(previewTimer); preview.hidden = true; }
+    function scheduleHide() {
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(() => {
+        if (!preview.contains(document.activeElement)) preview.hidden = true;
+      }, 180);
+    }
+    function showPreview(pin) {
+      const group = groups[Number(pin.dataset.previewGroup)];
+      if (!group || scroll.classList.contains('is-dragging')) return;
+      clearTimeout(previewTimer);
+      preview.innerHTML = mapEventPreviewMarkup(group.events);
+      preview.hidden = false;
+      const rect = pin.getBoundingClientRect();
+      const width = preview.offsetWidth;
+      const height = preview.offsetHeight;
+      preview.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2))}px`;
+      const below = rect.bottom + 10;
+      preview.style.top = `${Math.max(8, below + height <= window.innerHeight - 8 ? below : rect.top - height - 10)}px`;
+    }
+    pins.addEventListener('pointerover', event => {
+      if (event.pointerType === 'touch') return;
+      const pin = event.target.closest('[data-preview-group]');
+      if (pin) showPreview(pin);
+    });
+    pins.addEventListener('pointerout', event => {
+      if (event.target.closest('[data-preview-group]')) scheduleHide();
+    });
+    pins.addEventListener('focusin', event => {
+      const pin = event.target.closest('[data-preview-group]');
+      if (pin) showPreview(pin);
+    });
+    pins.addEventListener('focusout', scheduleHide);
+    preview.addEventListener('pointerenter', () => clearTimeout(previewTimer));
+    preview.addEventListener('pointerleave', scheduleHide);
+    preview.addEventListener('focusin', () => clearTimeout(previewTimer));
+    preview.addEventListener('focusout', scheduleHide);
+    preview.addEventListener('click', event => { if (event.target.closest('a')) hidePreview(); });
+    page.addEventListener('keydown', event => { if (event.key === 'Escape') hidePreview(); });
+    scroll.addEventListener('pointerdown', hidePreview);
+    scroll.addEventListener('scroll', hidePreview);
+
     let groups = [];
     function drawPins() {
+      hidePreview();
       groups = [];
       const visible = eventsByFloor[Number(select.value)];
       const {clientWidth: width, clientHeight: height} = map;
@@ -2325,12 +2536,12 @@ async function mapPage(focusedId = null) {
         const [event] = group.events;
         if (group.events.length === 1) {
           const title = escapeHtml(event.title);
-          return `<a class="map-pin${focusedClass}" href="#event/${event.id}" title="${title}" aria-label="${title}" style="${position}"></a>`;
+          return `<a class="map-pin${focusedClass}" href="#event/${event.id}" data-preview-group="${index}" aria-label="${title}" style="${position}"></a>`;
         }
 
         const label = `Событий у этой точки: ${group.events.length}`;
-        return `<button class="map-pin${focusedClass}" type="button" data-group="${index}" style="${position}"
-          aria-label="${label}" aria-haspopup="dialog" title="${label}">${group.events.length}</button>`;
+        return `<button class="map-pin${focusedClass}" type="button" data-group="${index}" data-preview-group="${index}" style="${position}"
+          aria-label="${label}" aria-haspopup="dialog">${group.events.length}</button>`;
       }).join('');
     }
 
@@ -2347,42 +2558,67 @@ async function mapPage(focusedId = null) {
       if (click.target.closest('a')) picker.close();
     };
 
-    function applyZoom(value) {
-      const next = Math.max(50, Math.min(300, value));
-      const centerX = (scroll.scrollLeft + scroll.clientWidth / 2) / (map.offsetWidth || 1);
-      const centerY = (scroll.scrollTop + scroll.clientHeight / 2) / (map.offsetHeight || 1);
+    function applyZoom(value, anchor = null) {
+      const point = anchor && map.offsetWidth && map.offsetHeight ? {
+        x: (scroll.scrollLeft + (anchor.fromX ?? anchor.x) - map.offsetLeft) / map.offsetWidth,
+        y: (scroll.scrollTop + (anchor.fromY ?? anchor.y) - map.offsetTop) / map.offsetHeight
+      } : null;
+      const next = Math.max(50, Math.min(300, Math.round(value)));
       zoom.value = next;
-      map.style.width = `${next}%`;
       zoomLabel.textContent = `${next}%`;
       zoomOut.disabled = next === 50;
       zoomIn.disabled = next === 300;
-      scroll.scrollLeft = centerX * map.offsetWidth - scroll.clientWidth / 2;
-      scroll.scrollTop = centerY * map.offsetHeight - scroll.clientHeight / 2;
+      const image = map.querySelector('img');
+      if (!image.complete || !image.naturalWidth || !scroll.clientWidth || !scroll.clientHeight) return;
+      const size = mapCanvasGeometry(scroll.clientWidth, scroll.clientHeight,
+        image.naturalWidth, image.naturalHeight, next);
+      canvas.style.width = `${size.canvasWidth}px`;
+      canvas.style.height = `${size.canvasHeight}px`;
+      map.style.width = `${size.width}px`;
+      map.style.height = `${size.height}px`;
+      map.style.left = `${(size.canvasWidth - size.width) / 2}px`;
+      map.style.top = `${(size.canvasHeight - size.height) / 2}px`;
+      scroll.scrollLeft = point ? (size.canvasWidth - size.width) / 2 + point.x * size.width - anchor.x
+        : (size.canvasWidth - scroll.clientWidth) / 2;
+      scroll.scrollTop = point ? (size.canvasHeight - size.height) / 2 + point.y * size.height - anchor.y
+        : (size.canvasHeight - scroll.clientHeight) / 2;
+      drawPins();
     }
 
     function drawFloor() {
       const floor = Number(select.value);
       status.textContent = eventsByFloor[floor].length ? '' : 'На этом этаже пока нет событий.';
-      setSchoolFloor(map, floor, status);
-      drawPins();
-      scroll.scrollTo(0, 0);
-      const link = event => `<p><a href="#event/${event.id}">${escapeHtml(event.title)}</a><br><small>${escapeHtml(event.room)} · ${dateLabel(event.date)} · ${escapeHtml(event.time)}</small></p>`;
-      page.querySelector('#map-events').innerHTML = `<h2>На этаже</h2>${eventsByFloor[floor].map(marker => link(marker.event)).join('') || '<p>Нет событий на этом этаже.</p>'}${unplacedEvents.length ? '<h2>Без точки на карте</h2>' + unplacedEvents.map(link).join('') : ''}`;
+      setSchoolFloor(map, floor, status, () => applyZoom(Number(zoom.value)));
+      page.querySelector('#map-events').innerHTML = mapFloorEventSections(
+        eventsByFloor[floor].map(marker => marker.event));
     }
+
+    const periodButtons = page.querySelectorAll('[data-map-period]');
+    function updatePeriodButtons() {
+      periodButtons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mapPeriod === selectedMapPeriod)));
+    }
+    periodButtons.forEach(button => button.onclick = () => {
+      selectedMapPeriod = button.dataset.mapPeriod;
+      groupMapEvents();updatePeriodButtons();
+      Array.from(select.options).forEach((option, floor) => option.textContent = `${floor} (${eventsByFloor[floor].length})`);
+      unplacedNote.hidden = !unplaced;
+      unplacedNote.textContent = `Событий без точного места: ${unplaced}. Их можно открыть в списке событий.`;
+      drawFloor();
+    });
+    updatePeriodButtons();
 
     zoom.oninput = () => applyZoom(Number(zoom.value));
     zoomIn.onclick = () => applyZoom(Number(zoom.value) + 25);
     zoomOut.onclick = () => applyZoom(Number(zoom.value) - 25);
     page.querySelector('#map-zoom-reset').onclick = () => {
       applyZoom(100);
-      scroll.scrollTo(0, 0);
     };
     select.onchange = () => {
       selectedMapFloor = Number(select.value);
       drawFloor();
     };
-    mapResizeObserver = new ResizeObserver(drawPins);
-    mapResizeObserver.observe(map);
+    mapResizeObserver = new ResizeObserver(() => applyZoom(Number(zoom.value)));
+    mapResizeObserver.observe(scroll);
     drawFloor();
   } catch (error) {
     status.textContent = error.message;
@@ -2400,11 +2636,12 @@ function findSchoolRoom(rooms, name) {
   return rooms.find(room => normalizeRoom(room.name) === normalizeRoom(name));
 }
 function roomMapMarkup(room, compact = false) {
+  room = {...room, x: room.marker_x ?? room.x, y: room.marker_y ?? room.y};
   const w = room.reference_width * (compact ? 0.32 : 0.48);
   const h = w * 0.56;
   const x = Math.max(0, Math.min(room.reference_width-w, room.x-w/2));
   const y = Math.max(0, Math.min(room.reference_height-h, room.y-h/2));
-  const radius = room.reference_width * 0.009;
+  const radius = Math.min(room.reference_width, room.reference_height) * 0.0045;
   return `<div class="room-map-preview"><svg viewBox="${x} ${y} ${w} ${h}" role="img" aria-label="Кабинет ${escapeHtml(room.name)}, этаж ${room.floor}">
     <image href="/static/maps/floor_${room.floor}.png" width="${room.reference_width}" height="${room.reference_height}"/>
     <circle cx="${room.x}" cy="${room.y}" r="${radius*1.8}" fill="#fff" fill-opacity="0.8"/>
