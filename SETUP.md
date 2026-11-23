@@ -1,53 +1,139 @@
-# Combined version
+# LETOMEET — установка и обновление
 
-See UPDATE-NOTES.md for the current merged feature list, local data handling, and validation results.
+Актуально на 23 ноября 2026 года. Список возможностей и изменений — в [UPDATE-NOTES.md](UPDATE-NOTES.md).
 
-# LETOMEET updated app
+## Локальный запуск: Windows / PowerShell
 
-## What is included
-The original Flask/SQLAlchemy app, Russian interface, stylesheet and navigation are retained. The existing registration/login screens and event cover/color/emoji/tagline controls are retained and hardened. Added: a map page (`/#map` or `/map`) with four school floor plans, room suggestions in event creation, event pins and an explicit list of unmapped events; comments with signed-in posting, author/admin deletion, and posting cooldown; decoded/re-encoded image uploads.
-
-## Run locally (PowerShell, Python 3.11+)
-From the extracted LETOMEET-main directory:
+Нужен Python 3.11 или новее. Выполняйте команды из папки с `main.py`:
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+$env:APP_ENV = "development"
 $env:SECRET_KEY = (python -c "import secrets; print(secrets.token_hex(32))")
 $env:MAIL_MODE = "console"
 python main.py
 ```
-Open http://127.0.0.1:5000. Register with a @student.letovo.ru or @letovo.ru address. In console mode the six-digit code appears in the server terminal. This is a deliberate local testing option. Codes expire after ten minutes, are stored hashed, and are consumed after verification. Requests are limited per email and IP; five verification attempts per email per ten minutes. Resends invalidate older codes.
 
-`.env.example` documents settings; Flask does not automatically load that file. Set environment variables in the shell or your host's secrets/settings panel. No credentials are included. The package starts with an empty database. The original uploaded database and personal upload photos are excluded from delivery.
+Откройте http://127.0.0.1:5000. Допускаются адреса `@student.letovo.ru` и `@letovo.ru`.
+В режиме `console` шестизначный код появляется в терминале строкой
+`[LETOMEET DEV] Code for …`; настоящее письмо не отправляется.
+Этот режим имеет приоритет над SMTP-настройками и запрещён в production и на Vercel.
+Без SMTP-настроек и без `MAIL_MODE` локальная разработка также использует терминал.
 
-To make an administrator, set ADMIN_EMAIL to a mailbox you control before starting the app. That account is created and must sign in with an email code. New events are pending until approved from the admin page. With no ADMIN_EMAIL configured no administrator is automatically created. Do not set this to someone else's address.
+При последующих запусках активируйте окружение и запускайте `python main.py`.
+Сохраните постоянный `SECRET_KEY`, если хотите сохранять сессии между перезапусками:
+команда выше генерирует новый ключ и при повторном выполнении завершит старые сессии.
 
-## Real email and production
-Set APP_ENV=production, a stable random SECRET_KEY, SMTP_HOST, SMTP_PORT (587), SMTP_USER, SMTP_PASSWORD and EMAIL_FROM (an authorized sender). Remove MAIL_MODE. SMTP uses STARTTLS and authentication. Missing email credentials produce a delivery error, never a successful simulated delivery. Provider credentials and an actual test mailbox are required to verify real delivery; that has not been tested here.
+`.env.example` и `env.example` — образцы настроек, они **не загружаются автоматически**.
+Задавайте переменные в терминале или в настройках хостинга. Для остановки сервера — `Ctrl+C`.
 
-Deploy behind HTTPS using a production WSGI server. Production cookies require HTTPS. Configure the reverse proxy so the app sees the public host/scheme, and enforce trusted hosts at the proxy. Do not use the Flask development server for public hosting. Keep secrets outside source control. Changing SECRET_KEY invalidates sessions. Without a supplied development key, restarts also invalidate sessions.
+## Администраторы
 
-New photo uploads are stored as binary data in the database and served at `/media/<filename>`. They do not require a writable upload directory on Vercel. With Neon, keep DATABASE_URL configured to your existing database. Local SQLite requires a persistent writable database directory. Photos accept JPG/PNG/WebP up to 4 MiB and 20 megapixels. See UPDATE-NOTES.md for details and migrations/001_event_features.sql for the additive database update. UPLOAD_FOLDER is retained only for reading pre-update local files.
+Перед запуском задайте нужный адрес:
 
-DATABASE_URL optionally selects PostgreSQL. Use `postgresql+psycopg://...` with the bundled psycopg 3 driver. Back up database and uploads together. Existing compatible databases gain two new tables (`comment`, `security_counter`) through create_all; existing columns are unchanged. Back up and test a copy before migrating any live database. create_all is not a general schema migration tool.
+```powershell
+$env:ADMIN_EMAIL = "имя@student.letovo.ru"
+$env:ADMIN_NAME = "Имя администратора"
+python main.py
+```
 
-The original vercel.json is retained. Vercel needs an external database such as your existing Neon database; SQLite cannot persist there. New photo uploads now persist in that database too. No cloud resources, SMTP account, or paid services were provisioned.
+Существующий аккаунт получит роль `admin`, сохранив своё имя. Если аккаунта ещё нет,
+он создастся с именем из `ADMIN_NAME` (по умолчанию `LETOMEET Admin`). Для входа нужен
+код на этот email; при локальном `console` код будет в терминале.
 
-## Map provenance and behavior
-Floor images come from the supplied letovo-navigator-main.zip. 149 ClassNode records come from the supplied Levels.java.txt. Reference image dimensions come from LetovoNavigator2Application.java: floor 0 = 2135x3339; 1 = 11411x7663; 2 = 10976x7360; 3 = 10764x7225. Coordinates are scaled proportionally, not assumed to be actual PNG pixels. Rooms match exactly, ignoring case/whitespace and normalizing Cyrillic c before numbers. Use the suggestions on the creation form. Unknown or outdoor locations remain visible in the unmapped list. Multiple events at one room may share a pin position; the adjacent list links to every event. There is no route finding or geolocation. Verify source room positions with school staff before relying on them.
+Для нескольких администраторов повторите запуск с другими адресами. Ранее выданные
+права сохраняются в базе. Команды меняют ту базу, к которой подключён этот экземпляр
+приложения. На внешнем сервере используйте его настройки окружения.
 
-## Tests and limits
+## Настоящая отправка писем
+
+Для отправки через почту вместо терминала:
+
+```powershell
+$env:MAIL_MODE = "smtp"
+$env:SMTP_HOST = "адрес SMTP-сервера"
+$env:SMTP_PORT = "587"
+$env:SMTP_USER = "почтовый аккаунт"
+$env:SMTP_PASSWORD = "пароль приложения или SMTP-пароль"
+$env:EMAIL_FROM = "разрешённый адрес отправителя"
+```
+
+Перезапустите приложение. Используются STARTTLS и аутентификация SMTP.
+`EMAIL_FROM` должен быть разрешён почтовым провайдером; при пустом значении используется
+`SMTP_USER`. Пароли не добавляйте в репозиторий.
+
+Коды действуют 10 минут, хранятся в виде хэшей и используются однократно.
+После успешной отправки повторный запрос доступен через 10 секунд; ошибка отправки
+не расходует этот интервал. Есть также общий лимит по IP и лимит проверки кодов:
+5 попыток на email за 10 минут. Ответ ограничения содержит оставшееся время.
+Успешная повторная отправка заменяет предыдущий код того же назначения.
+
+## База и обновление действующего сайта
+
+1. Сохраните резервную копию своей базы и существующих файлов загрузок.
+2. Замените файлы приложения; **не заменяйте свою папку `instance` данными из архива**.
+3. Обновите зависимости: `python -m pip install -r requirements.txt`.
+4. Сохраните действующие `DATABASE_URL`, `SECRET_KEY` и настройки почты; перезапустите сервер.
+5. Обновите страницу через `Ctrl+F5`.
+
+Без `DATABASE_URL` используется SQLite: `instance/school.db`. При заданном
+`DATABASE_URL` приложение использует указанную внешнюю базу. Для PostgreSQL подходит
+адрес `postgresql+psycopg://…`.
+
+Новые фотографии хранятся в таблице `event_image` и выдаются через `/media/…`.
+`UPLOAD_FOLDER` нужен только для чтения старых файловых фотографий.
+Поддерживаются JPG, PNG и WebP до 4 МБ и 20 мегапикселей; перед загрузкой доступно
+кадрирование. Для профиля используются `profile` и новая таблица `profile_appearance`
+с независимыми цветами баннера и фона аватара.
+
+Совместимые новые таблицы создаются автоматически при запуске. В последних изменениях
+добавлена отдельная таблица цветов, существующие колонки не менялись.
+`create_all()` не обновляет произвольные старые схемы. Для старых установок проверьте
+`migrations/001_event_features.sql` на копии базы; не запускайте миграции повторно вслепую.
+
+## Хостинг и очистка архива
+
+Для публичного сайта задайте `APP_ENV=production`, постоянный `SECRET_KEY`,
+рабочие SMTP-настройки и внешний `DATABASE_URL`. Используйте HTTPS и сервер,
+подходящий для production; встроенный `python main.py` предназначен для разработки.
+На Vercel обязательны `DATABASE_URL` и `SECRET_KEY`; локальная SQLite не подходит
+для постоянного хранения. `PUBLIC_BASE_URL=https://ваш-сайт` задаёт публичный адрес QR-кодов.
+
+Одноразовые события переходят в `past` на следующий день по московскому времени.
+Еженедельные события переносятся на ближайшую дату своего дня недели, не раньше сегодня.
+Архив хранится четыре полных дня после дня события: событие 23 ноября архивируется
+24 ноября и удаляется 28 ноября вместе с комментариями и записями участников.
+
+Обновление статусов и очистка выполняются при обращениях к API. Для запуска без
+посетителей в `vercel.json` добавлено ежедневное задание на 00:05 по Москве.
+Для него задайте на сервере `CRON_SECRET` — длинную случайную строку.
+Запрос к `/api/maintenance/events` должен содержать
+`Authorization: Bearer <CRON_SECRET>`. После развёртывания проверьте выполнение задания.
+
+На другом хостинге можно ежедневно запускать из папки проекта:
+
+```powershell
+python -m flask --app main maintain-events
+```
+
+Планировщик должен использовать то же окружение и базу, что и сайт.
+
+## Проверки
+
+Из папки проекта:
+
 ```powershell
 python -m unittest -v test_features
 python -m py_compile main.py
+node test_frontend.cjs
+node test_cropper.cjs
 ```
-Eleven integration tests cover registration/login, consumed/expired codes, throttling, email failure, image validation/serving, comment permissions/visibility, map coordinate bounds and cross-origin rejection. JavaScript syntax was checked separately. This is a Flask app with no frontend build step. Browser map/color checks passed; photo-picker UI testing and live SMTP/PostgreSQL delivery remain unverified.
 
-Comments show the latest 100 entries, newest first, and preserve escaped text. Signed-in users can remove their own comments; admins can remove any comment. No email notifications, reporting workflow, pagination, or comment editing is included. Existing card customization is available at event creation; an owner editing workflow is not added. Uploaded image database rows are not automatically garbage collected when an abandoned event form is discarded. Add storage quotas/cleanup and backup retention suitable for your school.
-
-Rate counters use conditional database updates, and verification consumes a code with a conditional delete. These paths have been tested sequentially with SQLite; concurrent PostgreSQL behavior has not been exercised here. Retention cleanup and provider sending limits remain deployment concerns. The retained app's account/event APIs can disclose school email addresses to authorized administrators; review school privacy and moderation requirements before launch.
-
-## Changed files
-main.py; static/script.js; static/style.css (additive styles); templates/index.html (map link); requirements.txt (Pillow); new static/maps/*; test_features.py; migrations/001_event_features.sql; UPDATE-NOTES.md; .env.example; SETUP.md. Original uploaded ZIPs and GitHub repository were not modified.
+Для JavaScript-проверок нужен Node.js; для работы сайта сборка фронтенда не требуется.
+Последняя серверная проверка: 32 теста на отдельной временной SQLite-базе.
+Дополнительно проверены фильтры дат по московскому времени, жесты карты, кадрирование
+и выбор готовых цветов профиля. Последние изменения вёрстки не проверялись визуально
+в полноценном браузере. Реальная SMTP-доставка, PostgreSQL/Neon и серверное расписание
+в этой среде не проверены.
