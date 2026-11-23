@@ -244,34 +244,36 @@ def valid_letovo_email(email):
 
 
 def ensure_admin():
-    admin_email = normalize_email(ADMIN_EMAIL)
+    configured_emails = os.environ.get("ADMIN_EMAILS", "")
+    if not configured_emails.strip():
+        configured_emails = ADMIN_EMAIL
 
-    if not admin_email:
-        return
+    emails = {
+        normalize_email(email)
+        for email in configured_emails.split(",")
+        if email.strip()
+    }
 
-    admin_name = os.environ.get(
-        "ADMIN_NAME",
-        "LETOMEET Admin"
-    )
+    for email in emails:
+        if not valid_letovo_email(email):
+            raise RuntimeError(
+                f"У администратора должна быть школьная почта: {email}"
+            )
 
-    user = User.query.filter_by(
-        email=admin_email
-    ).first()
+    for email in sorted(emails):
+        user = User.query.filter_by(email=email).first()
 
-    if not user:
-        user = User(
-            username=admin_name,
-            email=admin_email,
-            role="admin"
-        )
-
-        db.session.add(user)
-
-    else:
-        user.role = "admin"
+        if user is None:
+            user = User(
+                username="Администратор",
+                email=email,
+                role="admin"
+            )
+            db.session.add(user)
+        else:
+            user.role = "admin"
 
     db.session.commit()
-
 
 class SecurityCounter(db.Model):
     key = db.Column(db.String(240), primary_key=True)
