@@ -143,6 +143,14 @@ function updateAuthPanel() {
   const panel = document.querySelector('#auth-panel');
 
   if (!panel) return;
+  const mobileAccount = document.querySelector('#mobile-account');
+  if (mobileAccount) {
+    mobileAccount.href = currentUser ? '#account' : '#login';
+    mobileAccount.setAttribute('aria-label', currentUser ? 'Личный кабинет' : 'Войти в аккаунт');
+    mobileAccount.innerHTML = currentUser
+      ? avatarMarkup(currentUser, 'auth-avatar')
+      : '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 22v-3a8 8 0 0 1 16 0v3"/></svg>';
+  }
 
   if (!currentUser) {
     panel.innerHTML = `
@@ -1035,6 +1043,38 @@ function clearFilters() {
 }
 
 
+function aboutPage() {
+  content.innerHTML = `
+    <article class="about-page" aria-labelledby="about-title">
+      <a class="back" href="#home">← К началу</a>
+      <h1 id="about-title">О проекте</h1>
+      <p class="about-greeting">Всем привет! 🐱</p>
+      <p>LETOMEET — сайт, на котором можно найти компанию в Летово, присоединиться к чьей-то встрече или собрать свою.</p>
+      <p>Настолки, волейбол, совместный просмотр, рисование или просто разговоры — здесь можно предложить то, чем хочется заняться, и позвать остальных. Идея простая: чтобы было понятно, кто, где и когда собирается и можно ли присоединиться.</p>
+
+      <section aria-labelledby="about-features">
+        <h2 id="about-features">Что здесь можно делать</h2>
+        <ul>
+          <li>Посмотреть события на карте школы или в каталоге. Выбрать день, место и то, что интересно.</li>
+          <li>Нажать «Я пойду» и связаться с организатором, если хочется что-то уточнить.</li>
+          <li>Добавить своё событие: написать, что планируется, где встречаемся и во сколько. После проверки оно появится на сайте.</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="about-create">
+        <h2 id="about-create">Кстати, создать событие может любой</h2>
+        <p>Для входа нужна школьная почта. Дальше — название, описание, время и место. Очень хочется, чтобы из описания было понятно, что вы собираетесь делать и кому можно прийти 🫡</p>
+        <p>Свои мероприятия можно редактировать в личном кабинете. Если администратор попросит что-то исправить, его комментарий тоже будет там.</p>
+      </section>
+
+      <p class="about-invitation">Приходите, зовите друзей, предлагайте своё :D</p>
+      <div class="actions about-actions">
+        <a class="primary" href="#catalog">Каталог событий</a>
+        <a class="secondary" href="#create">Добавить своё событие</a>
+      </div>
+    </article>`;
+}
+
 function homePage() {
   content.innerHTML = `<section class="home home-start" aria-label="LETOMEET"><div class="home-choices"><a class="home-choice" href="#map"><span>Карта событий</span><span class="arrow" aria-hidden="true">↗</span></a><a class="home-choice" href="#create"><span>Добавить своё событие</span><span class="arrow" aria-hidden="true">+</span></a></div></section>`;
 }
@@ -1212,6 +1252,7 @@ function catalogPage() {
   content.innerHTML = `
     <div class="heading">
       <h1>Список событий</h1>
+      <span class="small muted">События LETOMEET</span>
     </div>
 
     <div class="catalog-layout">
@@ -1979,6 +2020,32 @@ function createPage(editEvent = null) {
 
 
 
+function closeHeaderMenu() {
+  document.querySelector('header')?.classList.remove('is-open');
+  const toggle = document.querySelector('#menu-toggle');
+  toggle?.setAttribute('aria-expanded', 'false');
+  toggle?.setAttribute('aria-label', 'Открыть меню');
+}
+
+function initHeaderMenu() {
+  const header = document.querySelector('header');
+  const toggle = document.querySelector('#menu-toggle');
+  if (!toggle || !header) return;
+  toggle.onclick = () => {
+    const open = header.classList.toggle('is-open');
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.setAttribute('aria-label', open ? 'Закрыть меню' : 'Открыть меню');
+  };
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && header.classList.contains('is-open')) {
+      closeHeaderMenu();toggle.focus();
+    }
+  });
+  document.addEventListener('click', event => {
+    if (!header.contains(event.target)) closeHeaderMenu();
+  });
+}
+
 async function render() {
   if (dialog.open) dialog.close();
   content.querySelectorAll("dialog[open]").forEach(item => item.close());
@@ -1988,6 +2055,8 @@ async function render() {
   const eventPath = location.pathname.match(/^\/events\/(\d+)\/?$/);
   const route = hash.slice(1) || (eventPath ? `event/${eventPath[1]}` :
     location.pathname === '/map' ? 'map' : location.pathname === '/events' ? 'catalog' : 'home');
+  document.body.classList.toggle('is-entry', route === 'home');
+  closeHeaderMenu();
   navigation.hidden = false;
 
   navigation.querySelectorAll('a').forEach(link => {
@@ -2000,6 +2069,9 @@ async function render() {
 
   if (route === 'home') {
     homePage();
+
+  } else if (route === 'about') {
+    aboutPage();
 
   } else if (route === 'welcome') {
     try { await loadData(); } catch (error) {
@@ -2110,6 +2182,7 @@ dialog.onclick = event => {
 };
 
 
+initHeaderMenu();
 window.addEventListener('hashchange', render);
 
 
@@ -2259,7 +2332,7 @@ function mapPeriodEvents(events, period, now = new Date()) {
   const end = new Date(today + 'T12:00:00Z');end.setUTCDate(end.getUTCDate() + 3);
   const last = end.toISOString().slice(0,10);
   return events.filter(event => period === 'today' ? event.date === today
-    : period === 'next3' ? event.date > today && event.date <= last : true);
+    : period === 'next4' ? event.date >= today && event.date <= last : true);
 }
 
 function mapFloorEventSections(events, now = new Date()) {
@@ -2363,7 +2436,7 @@ async function mapPage(focusedId = null) {
     <div class="map-controls" hidden>
       <div class="map-period-controls" role="group" aria-label="Когда проходят события">
         <button type="button" class="secondary" data-map-period="today">Сегодня</button>
-        <button type="button" class="secondary" data-map-period="next3">Следующие 3 дня</button>
+        <button type="button" class="secondary" data-map-period="next4">Следующие 4 дня</button>
         <button type="button" class="secondary" data-map-period="all">Все</button>
       </div>
       <label class="field">Этаж<select id="map-floor"></select></label>
