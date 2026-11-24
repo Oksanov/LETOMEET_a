@@ -5,19 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#dfc878">
   <title>LETOMEET — школьные события</title>
-  <script src="{{ url_for('static', filename='theme.js', v='20261123k') }}"></script>
-  <script src="{{ url_for('static', filename='trending.js', v='20261123k') }}" defer></script>
-  <script src="{{ url_for('static', filename='sharing.js', v='20261123k') }}" defer></script>
-  <script src="{{ url_for('static', filename='cropper.js', v='20261123k') }}" defer></script>
-  <script src="{{ url_for('static', filename='profile.js', v='20261123k') }}" defer></script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261123k') }}">
-  <script src="{{ url_for('static', filename='script.js', v='20261123k') }}" defer></script>
+  <script src="{{ url_for('static', filename='theme.js', v='20261124b') }}"></script>
+  <script src="{{ url_for('static', filename='trending.js', v='20261124b') }}" defer></script>
+  <script src="{{ url_for('static', filename='sharing.js', v='20261124b') }}" defer></script>
+  <script src="{{ url_for('static', filename='cropper.js', v='20261124b') }}" defer></script>
+  <script src="{{ url_for('static', filename='profile.js', v='20261124b') }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261124b') }}">
+  <script src="{{ url_for('static', filename='script.js', v='20261124b') }}" defer></script>
 </head>
-<body>
-  <header>
-    <a class="logo" href="#home" aria-label="LETOMEET — каталог и создание событий">
-      LETOMEET
-    </a>
+<body class="is-entry">
+  <header class="site-header">
+    <div class="site-brand">
+      <a class="logo" href="#home" aria-label="LETOMEET — каталог и создание событий">LETOMEET</a>
+      <a class="about-link" href="#about">О проекте</a>
+    </div>
 
     <nav aria-label="Навигация" id="navigation" hidden>
       <a href="#map">Карта событий</a>
@@ -26,6 +27,8 @@
       <a href="#create">Добавить событие</a>
     </nav>
 
+    <a id="mobile-account" class="mobile-account" href="#login" aria-label="Войти в аккаунт"></a>
+    <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Открыть меню" aria-controls="navigation auth-panel theme-toggle" aria-expanded="false"><span aria-hidden="true">☰</span></button>
     <div id="auth-panel"></div>
     <button id="theme-toggle" type="button" aria-label="Тёмная тема" aria-pressed="false" title="Включить тёмную тему">☾</button>
   </header>
