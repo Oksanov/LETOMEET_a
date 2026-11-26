@@ -12,7 +12,7 @@ const PROFILE_EVENT_COLORS = [
   ['cream','Кремовый','#f8f4e8'], ['blue','Голубой','#edf4fa'],
   ['green','Зелёный','#edf4eb'], ['lavender','Лавандовый','#f2eff8'],
   ['peach','Персиковый','#fbf0e8'], ['pink','Розовый','#f8edf1'],
-  ['burgundy','Бордовый','#f3e3e6'], ['dark','Тёмный','#34352f']
+  ['burgundy','Бордовый','#dfb3bf'], ['dark','Тёмный','#34352f']
 ];
 
 function profilePhotoField(key) {
