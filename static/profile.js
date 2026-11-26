@@ -5,14 +5,14 @@ function profileColor(value, fallback = '#e3cd86') {
 function avatarMarkup(user, className = 'profile-avatar') {
   return user.avatar_url
     ? `<img class="${className}" src="${escapeHtml(user.avatar_url)}" alt="Фото профиля">`
-    : `<span class="${className} avatar-initials" style="background:${profileColor(user.avatar_color)}" aria-hidden="true">${escapeHtml((user.username || '?').trim().slice(0,2).toUpperCase())}</span>`;
+    : `<span class="${className} avatar-initials" style="--profile-selected-color:${profileColor(user.avatar_color)};background:${profileColor(user.avatar_color)}" aria-hidden="true">${escapeHtml((user.username || '?').trim().slice(0,2).toUpperCase())}</span>`;
 }
 
 const PROFILE_EVENT_COLORS = [
   ['cream','Кремовый','#f8f4e8'], ['blue','Голубой','#edf4fa'],
   ['green','Зелёный','#edf4eb'], ['lavender','Лавандовый','#f2eff8'],
   ['peach','Персиковый','#fbf0e8'], ['pink','Розовый','#f8edf1'],
-  ['dark','Тёмный','#34352f']
+  ['burgundy','Бордовый','#f3e3e6'], ['dark','Тёмный','#34352f']
 ];
 
 function profilePhotoField(key) {
@@ -24,24 +24,25 @@ function profilePhotoField(key) {
     ? 'Для того, чтобы поставить цветной баннер, нужно удалить фотографию.'
     : 'Для того, чтобы поставить цветной фон аватарки, нужно удалить фотографию.';
   return `<div class="profile-upload">
+    ${key === 'avatar' ? '<p class="small muted">JPG, PNG или WEBP, до 4 МБ и 20 мегапикселей. Для аватара лучше квадрат, для баннера — 1500 × 500. Перед загрузкой можно выбрать область фотографии. Аватар виден рядом с вашими комментариями.</p>' : ''}
     <fieldset class="profile-color-picker" data-profile-colors="${key}" aria-describedby="${key}-color-help" ${hasPhoto ? 'disabled' : ''}>
       <legend>${label}</legend>
       <div class="color-swatches">${PROFILE_EVENT_COLORS.map(([name, title, hex]) => `<label class="color-option"><input type="radio" name="${key}_color" value="${hex}" ${selected === hex ? 'checked' : ''}><span class="color-swatch event-card-${name}" aria-hidden="true"></span><span>${title}</span></label>`).join('')}</div>
     </fieldset>
     <p class="small muted" id="${key}-color-help" data-profile-color-help="${key}" ${hasPhoto ? '' : 'hidden'}>${explanation}</p>
-    <label class="field">${key === 'avatar' ? 'Фото профиля' : 'Баннер'}<input type="file" data-profile-file="${key}" accept="image/jpeg,image/png,image/webp"></label>
+    <label class="field">${key === 'avatar' ? '' : 'Баннер'}<input aria-label="${key === 'avatar' ? 'Добавить фото аватара' : 'Добавить фото баннера'}" type="file" data-profile-file="${key}" accept="image/jpeg,image/png,image/webp"></label>
     <div data-profile-preview="${key}"></div><button class="secondary" type="button" data-profile-remove="${key}">Убрать ${key === 'avatar' ? 'фото' : 'баннер'}</button>
   </div>`;
 }
 
 function profileMarkup() {
   return `<section class="profile-card" aria-label="Профиль">
-    <div class="profile-banner" style="background:${profileColor(currentUser.banner_color)}">${currentUser.banner_url ? `<img src="${escapeHtml(currentUser.banner_url)}" alt="Баннер профиля">` : ''}</div>
+    <div class="profile-banner" style="--profile-selected-color:${profileColor(currentUser.banner_color)};background:${profileColor(currentUser.banner_color)}">${currentUser.banner_url ? `<img src="${escapeHtml(currentUser.banner_url)}" alt="Баннер профиля">` : ''}</div>
     <div class="profile-identity">${avatarMarkup(currentUser)}<div><h2>${escapeHtml(currentUser.username)}</h2><p class="small muted">${escapeHtml(currentUser.email)}</p></div></div>
     <details class="profile-editor"><summary>Редактировать профиль</summary>
       <form id="profile-form">
         <label class="field">Имя<input name="username" required maxlength="80" value="${escapeHtml(currentUser.username)}"></label>
-        <p class="small muted">JPG, PNG или WEBP, до 4 МБ и 20 мегапикселей. Для аватара лучше квадрат, для баннера — 1500 × 500. Перед загрузкой можно выбрать область фотографии. Аватар виден рядом с вашими комментариями.</p>
+
         ${['avatar','banner'].map(profilePhotoField).join('')}
         <p class="error" id="profile-error" role="alert"></p>
         <button class="primary" type="submit">Сохранить профиль</button>
@@ -65,6 +66,7 @@ function bindProfile() {
     if (key === 'banner') {
       const banner=document.querySelector('.profile-banner');
       banner.style.background=color;
+      banner.style.setProperty('--profile-selected-color',color);
       banner.innerHTML=photo ? `<img src="${escapeHtml(photo)}" alt="Баннер профиля">` : '';
     } else {
       const avatar=document.querySelector('.profile-identity .profile-avatar');

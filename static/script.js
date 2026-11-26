@@ -149,7 +149,7 @@ function updateAuthPanel() {
     mobileAccount.setAttribute('aria-label', currentUser ? 'Личный кабинет' : 'Войти в аккаунт');
     mobileAccount.innerHTML = currentUser
       ? avatarMarkup(currentUser, 'auth-avatar')
-      : '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 22v-3a8 8 0 0 1 16 0v3"/></svg>';
+      : '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="6" r="3.5"/><path d="M4 22v-2a8 8 0 0 1 16 0v2"/></svg>';
   }
 
   if (!currentUser) {
@@ -168,7 +168,7 @@ function updateAuthPanel() {
       <a class="auth-account" href="#account" aria-label="${escapeHtml(currentUser.username)} — личный кабинет">
         ${currentUser.avatar_url
           ? `<img class="auth-avatar" src="${escapeHtml(currentUser.avatar_url)}" alt="">`
-          : `<span class="auth-avatar auth-avatar-placeholder" style="background-color:${profileColor(currentUser.avatar_color, '#e3cd86')}" aria-hidden="true">${escapeHtml(Array.from(currentUser.username || '?')[0].toUpperCase())}</span>`}
+          : `<span class="auth-avatar auth-avatar-placeholder" style="--profile-selected-color:${profileColor(currentUser.avatar_color, '#e3cd86')};background-color:${profileColor(currentUser.avatar_color, '#e3cd86')}" aria-hidden="true">${escapeHtml(Array.from(currentUser.username || '?')[0].toUpperCase())}</span>`}
         <span class="auth-account-name">${escapeHtml(currentUser.username)}</span>
       </a>
 
@@ -629,11 +629,12 @@ async function adminPage() {
       const filtered = data.events.filter(event => {
         const searchable = [
           event.id, event.title, event.summary, event.organizer,
-          event.place, event.room, event.activity, event.type
+          event.place, event.room, event.activity, event.type,
+          event.pending_changes?.title, event.pending_changes?.summary, event.pending_changes?.room
         ].join(' ').toLocaleLowerCase('ru');
 
         return (!query || searchable.includes(query)) &&
-          (status === 'all' || event.status === status);
+          (status === 'all' || event.status === status || (status === 'pending' && event.change_status === 'pending') || (status === 'revision' && event.change_status === 'revision'));
       });
 
       filtered.sort((a, b) => {
@@ -648,15 +649,20 @@ async function adminPage() {
 
       countLabel.textContent = `Показано: ${filtered.length} из ${data.events.length}`;
 
-      const renderEvent = event => `
+      const renderEvent = original => {
+        const event = original.pending_changes && ['pending','revision'].includes(original.change_status) ? {...original,...original.pending_changes} : original;
+        return `
           <article class="account-event">
             <div class="admin-event-main">
               <h3>${escapeHtml(event.title)}</h3>
+              ${event.change_status === 'pending' ? '<p class="notice">Изменение опубликованного события. Показана предлагаемая версия.</p>' : ''}
+              ${event.change_comment ? `<p class="error">Комментарий к изменению: ${escapeHtml(event.change_comment)}</p>` : ''}
               <p class="meta">
                 ID: ${event.id} · ${dateLabel(event.date)} · ${event.time}–${event.end}
                 · ${escapeHtml(event.place)} · ${escapeHtml(event.room)}
               </p>
               <p class="muted">${escapeHtml(event.summary)}</p>
+              ${event.change_status === 'pending' ? `<details><summary>Описание и детали изменений</summary><p class="description">${escapeHtml(event.description)}</p><div class="chips">${tags(event)}</div><div>${contactLinks(event)}</div></details>` : ''}
               <p>Статус: <strong>${({
                 pending: 'На модерации',
                 approved: 'Опубликовано',
@@ -677,20 +683,19 @@ async function adminPage() {
                     src="${escapeHtml(event.image_url)}" alt="Обложка мероприятия">
                 </a>` : ''}
 
-              <a class="secondary" href="#event/${event.id}">Открыть</a>
+              <a class="secondary" href="#event/${event.id}">${event.change_status === 'pending' ? 'Открыть текущую версию' : 'Открыть'}</a>
 
               ${event.status === 'approved' ? `
                 <a class="secondary" href="/api/events/${event.id}/qr?download=1">
                   Скачать QR
                 </a>` : ''}
 
-              ${event.status === 'pending' ? `
-                <button class="primary" onclick="moderateEvent(${event.id}, 'approve')">
-                  Одобрить
+              ${event.status === 'pending' || event.change_status === 'pending' ? `
+                <button class="primary" onclick="moderateEvent(${event.id}, 'approve', '${event.change_id || ''}')">
+                  ${event.change_status === 'pending' ? 'Одобрить изменение' : 'Одобрить'}
                 </button>` : ''}
 
-              ${event.status === 'pending' ? `
-                <button class="secondary" onclick="moderateEvent(${event.id}, 'reject')">Отклонить</button>` : ''}
+              ${event.change_status === 'pending' ? `<button class="secondary" onclick="moderateEvent(${event.id}, 'reject-change', '${event.change_id || ''}')">Отклонить изменение</button>` : event.status === 'pending' ? `<button class="secondary" onclick="moderateEvent(${event.id}, 'reject')">Отклонить</button>` : ''}
 
               ${event.status === 'approved' ? `
                 <button class="secondary"
@@ -700,6 +705,7 @@ async function adminPage() {
             </div>
           </article>
         `;
+      };
       const modules = [
         ['К модерации', ['pending']],
         ['Отмодерировано', ['approved', 'rejected']],
@@ -707,7 +713,9 @@ async function adminPage() {
         ['Прошедшие', ['past']]
       ];
       eventsContainer.innerHTML = modules.map(([label, statuses], index) => {
-        const items = filtered.filter(event => statuses.includes(event.status));
+        const items = filtered.filter(event => index === 0 ? event.status === 'pending' || (event.status === 'approved' && event.change_status === 'pending')
+          : index === 1 ? statuses.includes(event.status) && !['pending','revision'].includes(event.change_status)
+          : index === 2 ? event.status === 'revision' || (event.status === 'approved' && event.change_status === 'revision') : event.status === 'past');
         return `<details class="admin-event-module" ${index === 0 ? 'open' : ''}><summary>${label} <span class="tag">${items.length}</span></summary>${items.map(renderEvent).join('') || '<p class="muted">Нет событий.</p>'}</details>`;
       }).join('');
     }
@@ -785,12 +793,12 @@ async function moderationDecision() {
   });
 }
 
-async function moderateEvent(eventId, action) {
+async function moderateEvent(eventId, action, changeId = null) {
   const decision = action === 'approve' ? {} : await moderationDecision();
   if (!decision) return;
   try {
     const response = await fetch(`/api/admin/events/${eventId}/${action}`, {
-      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(decision)
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...decision,change_id:changeId})
     });
     const data = await readResponse(response);
     if (!response.ok) throw new Error(data.error || 'Не удалось изменить статус');
@@ -905,6 +913,7 @@ async function accountPage() {
               Участников: ${event.count}
             </p>
 
+            ${event.change_status ? `<p class="notice">${event.change_status === 'pending' ? 'Изменения на модерации. Текущая версия опубликована.' : event.change_status === 'revision' ? 'Изменения возвращены на доработку. Текущая версия опубликована.' : 'Изменения отклонены. Текущая версия опубликована.'}${event.change_comment ? `<br>${escapeHtml(event.change_comment)}` : ''}</p>` : ''}
             <p class="meta">
               Статус: <strong>${({pending:'На модерации',approved:'Опубликовано',rejected:'Отклонено',revision:'В редакции пользователя',past:'Прошедшие'})[event.status] || escapeHtml(event.status)}</strong>
             </p>
@@ -1256,7 +1265,8 @@ function catalogPage() {
     </div>
 
     <div class="catalog-layout">
-      <aside class="sidebar"><div class="catalog-filters"><h2>Фильтры событий</h2>
+      <button class="mobile-filter-toggle secondary" id="mobile-filter-toggle" type="button" aria-expanded="false" aria-controls="catalog-filter-panel">☷ Фильтры</button>
+      <aside class="sidebar" id="catalog-filter-panel"><div class="catalog-filters"><h2>Фильтры событий</h2><button type="button" class="plain mobile-filter-close" id="mobile-filter-close">Закрыть ×</button>
         <form id="filter-form">
           ${filterFields()}
           <button class="plain" type="button" id="reset">Сбросить фильтры</button>
@@ -1265,6 +1275,13 @@ function catalogPage() {
 
       <section id="results" aria-label="События" aria-live="polite"></section>
     </div>`;
+
+  const filterToggle=document.querySelector('#mobile-filter-toggle');
+  const filterPanel=document.querySelector('#catalog-filter-panel');
+  const closeFilters=()=>{filterPanel.classList.remove('is-open');filterToggle.setAttribute('aria-expanded','false');};
+  filterToggle.onclick=()=>{const open=filterPanel.classList.toggle('is-open');filterToggle.setAttribute('aria-expanded',String(open));};
+  document.querySelector('#mobile-filter-close').onclick=closeFilters;
+  filterPanel.onkeydown=event=>{if(event.key==='Escape'){closeFilters();filterToggle.focus();}};
 
   document.querySelector('#filter-form').onchange = event => {
     if (readFilters(event.currentTarget)) updateList();
@@ -1283,19 +1300,19 @@ function safeContact(value) {
   try { const url = new URL(value); return ['https:','http:'].includes(url.protocol) ? value : ''; }
   catch { return ''; }
 }
+async function copySchoolContact(button) {
+  try {await navigator.clipboard.writeText(button.dataset.email);button.textContent='Почта скопирована';}
+  catch {prompt('Скопируйте почту для поиска в Летово Чат:',button.dataset.email);}
+}
+
 function contactLinks(event) {
-  event = {...event, chat:safeContact(event.chat), contact:safeContact(event.contact)};
-  return `
-    ${
-      event.chat
-        ? `<a class="contact" href="${escapeHtml(event.chat)}" target="_blank" rel="noopener noreferrer">Чат события ↗</a>`
-        : '<p class="contact muted">Чат события: ссылка пока не добавлена</p>'
-    }
-    ${
-      event.contact
-        ? `<a class="contact" href="${escapeHtml(event.contact)}" target="_blank" rel="noopener noreferrer">Написать организатору ↗</a>`
-        : '<p class="contact muted">ЛС организатора: ссылка пока не добавлена</p>'
-    }`;
+  const raw=String(event.contact || '').trim();
+  const email=/^[a-z0-9.!#$%&'*+\/=?^_`{|}~-]+@(student\.letovo\.ru|letovo\.ru)$/i.test(raw);
+  const contact=email ? '' : safeContact(raw.startsWith('@')?'https://t.me/'+raw.slice(1):raw);
+  const chat=safeContact(event.chat);
+  return `${chat ? `<a class="contact" href="${escapeHtml(chat)}" target="_blank" rel="noopener noreferrer">Чат события ↗</a>` : ''}
+    ${email ? `<p class="contact">Летово Чат: <strong>${escapeHtml(raw)}</strong></p><button type="button" class="secondary" data-email="${escapeHtml(raw)}" onclick="copySchoolContact(this)">Скопировать почту</button>`
+      : contact ? `<a class="contact" href="${escapeHtml(contact)}" target="_blank" rel="noopener noreferrer">Написать организатору ↗</a>` : '<p class="contact muted">Контакт организатора пока не добавлен</p>'}`;
 }
 
 async function joinEvent(eventId) {
@@ -1382,6 +1399,7 @@ async function eventPage(event, preview = false) {
 
 
     ${!preview && currentUser?.id === event.creator_id ? `<p class="notice owner-event-notice">${['pending','approved','revision'].includes(event.status) ? 'Это ваше мероприятие, в <a href="#account">личном кабинете</a> его можно редактировать. Участвуете вы в нём автоматически.' : 'Это ваше мероприятие.'}</p>` : ''}
+    ${!preview && event.change_status ? `<section class="notice" role="status"><strong>${event.change_status === 'pending' ? 'Изменения ожидают одобрения. Ниже показана опубликованная версия.' : 'Изменения рассмотрены. Опубликованная версия остаётся на сайте.'}</strong>${event.change_comment ? `<p>Комментарий администратора: ${escapeHtml(event.change_comment)}</p>` : ''}</section>` : ''}
     <article class="detail">
       <div class="detail-grid">
         <div class="event-detail-main">
@@ -1549,6 +1567,7 @@ function selectField(key, label, options) {
 
 
 function createPage(editEvent = null) {
+  if (editEvent?.pending_changes) editEvent = {...editEvent, ...editEvent.pending_changes};
   if (editEvent && ['rejected','past'].includes(editEvent.status)) {
     content.innerHTML = '<p class="notice">Это событие нельзя редактировать. Создайте новое событие.</p><a href="#create">Добавить событие</a>';
     return;
@@ -1581,7 +1600,7 @@ function createPage(editEvent = null) {
     <section class="event-form">
       <a class="back" href="#home">← На главную</a>
       <h1>${editEvent ? "Редактировать мероприятие" : "Добавить своё событие"}</h1>
-      ${editEvent ? `<section class="notice"><strong>Изменения должны пройти модерацию.</strong><p>После сохранения событие будет скрыто из каталога и карты до одобрения. Записи участников и комментарии сохранятся.</p><p>${escapeHtml(editEvent.moderation_comment || '')}</p><a href="#event/${editEvent.id}">Вернуться к событию</a></section>` : ''}
+      ${editEvent ? `<section class="notice"><strong>Изменения должны пройти модерацию.</strong><p>${editEvent.status === 'approved' ? 'До одобрения изменений на сайте останется текущая опубликованная версия.' : 'Событие появится в каталоге и на карте после одобрения.'} Записи участников и комментарии сохранятся.</p><p>${escapeHtml(editEvent.moderation_comment || '')}</p><a href="#event/${editEvent.id}">Вернуться к событию</a></section>` : ''}
 
       <form id="event-form">
         <div class="form-grid">
@@ -1638,16 +1657,6 @@ function createPage(editEvent = null) {
             </div>
 
             <label class="field full">
-              Короткий слоган
-              <input
-                name="tagline"
-                maxlength="80"
-                placeholder="Например, вечер, который нельзя пропустить"
-              >
-              <span class="small muted">Необязательно, максимум 80 символов.</span>
-            </label>
-
-          <label class="field full">
             Краткое описание
             <input
               name="summary"
@@ -1658,12 +1667,12 @@ function createPage(editEvent = null) {
           </label>
 
           <label class="field full">
-            Описание
+            Описание и детали
             <textarea
               name="description"
               required
               maxlength="4000"
-              placeholder="Что будете делать, кому можно прийти и что взять с собой?"
+              placeholder="Дальнейшее описание: точное объяснение то, что будете делать, уточнения по месту проведения, чат события и тому подобное"
             ></textarea>
           </label>
 
@@ -1741,21 +1750,10 @@ function createPage(editEvent = null) {
             </label>
 
             <label class="field">
-              Ссылка на чат события
-              <input
-                type="url"
-                name="chat"
-                placeholder="https://t.me/…"
-              >
-            </label>
-
-            <label class="field">
-              Ссылка на ЛС организатора
-              <input
-                type="url"
-                name="contact"
-                placeholder="https://t.me/…"
-              >
+              ЛС организатора
+              <input type="text" name="contact" required maxlength="200"
+                placeholder="Ник в телеграмме или школьная почта для Летово Чат">
+              <span class="small muted">Ник с @ автоматически станет ссылкой на Telegram.</span>
             </label>
           </div>
         </section>
@@ -1912,8 +1910,13 @@ function createPage(editEvent = null) {
       return;
     }
 
+    data.contact = String(data.contact || '').trim();
+    if (/^@[A-Za-z0-9_]{1,32}$/.test(data.contact)) data.contact = 'https://t.me/' + data.contact.slice(1);
+    const schoolContact = /^[a-z0-9.!#$%&'*+\/=?^_`{|}~-]+@(student\.letovo\.ru|letovo\.ru)$/i.test(data.contact);
+    if (!data.contact) {error.textContent='Укажите ЛС организатора.';return;}
     // Проверка ссылок
     for (const key of ['chat', 'contact']) {
+      if (key === 'contact' && schoolContact) continue;
       if (!data[key]) continue;
 
       try {
@@ -2319,7 +2322,7 @@ function mapCanvasGeometry(viewWidth, viewHeight, imageWidth, imageHeight, zoom)
 function mapEventPreviewMarkup(events) {
   return events.map(event => {
     const description = Array.from(String(event.description || ''));
-    const excerpt = description.length > 35 ? description.slice(0, 32).join('') + '...' : description.join('');
+    const excerpt = description.length > 70 ? description.slice(0, 67).join('') + '...' : description.join('');
     const image = event.image_url ? `<img src="${escapeHtml(event.image_url)}" alt="" loading="lazy">` : '<span class="map-preview-placeholder" aria-hidden="true">✦</span>';
     return `<article class="map-preview-card">${image}<div class="map-preview-copy"><h3>${escapeHtml(event.title)}</h3><div class="map-preview-tags">${[event.activity, event.type, event.duration].map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div><p>${escapeHtml(excerpt)}</p><a href="#event/${event.id}">Открыть событие ↗</a></div></article>`;
   }).join('');
@@ -2540,8 +2543,10 @@ async function mapPage(focusedId = null) {
     preview.setAttribute('role', 'region');
     preview.setAttribute('aria-label', 'Описание событий на карте');
     page.append(preview);
-    let previewTimer;
+    let previewTimer, tappedGroup = null;
     function hidePreview() { clearTimeout(previewTimer); preview.hidden = true; }
+    let lastMapPointer = 'mouse';
+    pins.addEventListener('pointerdown', event => {lastMapPointer=event.pointerType || 'mouse';});
     function scheduleHide() {
       clearTimeout(previewTimer);
       previewTimer = setTimeout(() => {
@@ -2567,6 +2572,7 @@ async function mapPage(focusedId = null) {
       if (pin) showPreview(pin);
     });
     pins.addEventListener('pointerout', event => {
+      if (event.pointerType === 'touch') return;
       if (event.target.closest('[data-preview-group]')) scheduleHide();
     });
     pins.addEventListener('focusin', event => {
@@ -2580,12 +2586,12 @@ async function mapPage(focusedId = null) {
     preview.addEventListener('focusout', scheduleHide);
     preview.addEventListener('click', event => { if (event.target.closest('a')) hidePreview(); });
     page.addEventListener('keydown', event => { if (event.key === 'Escape') hidePreview(); });
-    scroll.addEventListener('pointerdown', hidePreview);
-    scroll.addEventListener('scroll', hidePreview);
+    scroll.addEventListener('pointerdown', event => {if (!(event.pointerType === 'touch' && event.target.closest('[data-preview-group]'))) {tappedGroup=null;hidePreview();}});
+    scroll.addEventListener('scroll', () => {tappedGroup=null;hidePreview();});
 
     let groups = [];
     function drawPins() {
-      hidePreview();
+      tappedGroup=null;hidePreview();
       groups = [];
       const visible = eventsByFloor[Number(select.value)];
       const {clientWidth: width, clientHeight: height} = map;
@@ -2619,6 +2625,15 @@ async function mapPage(focusedId = null) {
     }
 
     pins.onclick = click => {
+      const pin = click.target.closest('[data-preview-group]');
+      const touch = click.detail !== 0 && (lastMapPointer === 'touch' || matchMedia('(hover: none)').matches);
+      if (pin && touch) {
+        const index = Number(pin.dataset.previewGroup);
+        if (preview.hidden || tappedGroup !== index || !preview.querySelector(`[href="#event/${groups[index]?.events[0]?.id}"]`)) {
+          click.preventDefault();tappedGroup=index;showPreview(pin);return;
+        }
+        tappedGroup=null;
+      }
       const button = click.target.closest('[data-group]');
       if (!button) return;
       pickerEvents.innerHTML = groups[Number(button.dataset.group)].events.map(event => `
