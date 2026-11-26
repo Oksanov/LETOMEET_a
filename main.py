@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from email.message import EmailMessage
 from datetime import datetime, timezone, timedelta
+import json
 import smtplib
 import math
 import secrets
@@ -17,6 +18,7 @@ from urllib.parse import urlsplit
 import io
 import qrcode
 from PIL import ImageOps
+from database_storage import resolve_storage
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = int(4.25 * 1024 * 1024)
@@ -32,12 +34,10 @@ if not app.config["SECRET_KEY"]:
 # Secure environment check
 database_url = os.environ.get('DATABASE_URL')
 
-if database_url:
-    if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
-    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
-else:
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///school.db'
+database_uri, persistent_data_dir = resolve_storage(database_url, app.instance_path)
+app.config['SQLALCHEMY_DATABASE_URI'] = database_uri
+if persistent_data_dir is not None:
+    app.logger.warning("SQLite persistent storage: %s", persistent_data_dir / "school.db")
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -56,7 +56,7 @@ db = SQLAlchemy(app)
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=os.environ.get("APP_ENV") == "production")
 if os.environ.get("APP_ENV") == "production" and not os.environ.get("SECRET_KEY"):
     raise RuntimeError("Set SECRET_KEY in production")
-UPLOAD_FOLDER = os.path.abspath(os.environ.get("UPLOAD_FOLDER", os.path.join(app.instance_path, "uploads")))
+UPLOAD_FOLDER = os.path.abspath(os.environ.get("UPLOAD_FOLDER", os.path.join(str(persistent_data_dir) if persistent_data_dir else app.instance_path, "uploads")))
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
 # -----------------------------
 # Data model
@@ -175,9 +175,9 @@ class Event(db.Model):
     card_emoji = db.Column(db.String(20), nullable=True)
     tagline = db.Column(db.String(80), nullable=True)
 
-    def to_dict(self):
+    def to_dict(self, include_changes=False):
         """Converts the SQL row into a regular dictionary for the API responses"""
-        return {
+        result = {
             "id": self.id,
             "title": self.title,
             "creator_id": self.creator_id,
@@ -203,6 +203,22 @@ class Event(db.Model):
             "card_emoji": self.card_emoji,
             "tagline": self.tagline
         }
+
+        if include_changes:
+            change = db.session.get(EventChange, self.id)
+            result["pending_changes"] = json.loads(change.payload) if change else None
+            result["change_id"] = change.version if change else None
+            result["change_status"] = change.state if change else None
+            result["change_comment"] = change.comment if change else None
+        return result
+
+
+class EventChange(db.Model):
+    event_id = db.Column(db.Integer, db.ForeignKey("event.id"), primary_key=True)
+    payload = db.Column(db.Text, nullable=False)
+    version = db.Column(db.String(32), nullable=False, default=lambda: uuid.uuid4().hex)
+    state = db.Column(db.String(20), nullable=False, default="pending")
+    comment = db.Column(db.Text, nullable=True)
 
 
 class Registration(db.Model):
@@ -579,11 +595,15 @@ def maintain_events(today=None):
                 event.status = "past"
         else:
             event.status = "past"
-    archived_count = sum(event.status == "past" for event in expired)
+    archived_ids = [event.id for event in expired if event.status == "past"]
+    if archived_ids:
+        EventChange.query.filter(EventChange.event_id.in_(archived_ids)).delete(synchronize_session=False)
+    archived_count = len(archived_ids)
     db.session.flush()
     cutoff = (today - timedelta(days=4)).isoformat()
     old_ids = [row.id for row in Event.query.filter(Event.status == "past", Event.date < cutoff).all()]
     if old_ids:
+        EventChange.query.filter(EventChange.event_id.in_(old_ids)).delete(synchronize_session=False)
         Comment.query.filter(Comment.event_id.in_(old_ids)).delete(synchronize_session=False)
         Registration.query.filter(Registration.event_id.in_(old_ids)).delete(synchronize_session=False)
         Event.query.filter(Event.id.in_(old_ids)).delete(synchronize_session=False)
@@ -770,7 +790,8 @@ def api_event(event_id):
         if not user or (user.role != "admin" and event.creator_id != user.id):
             return jsonify({"error": "Мероприятие не опубликовано"}), 404
 
-    return jsonify(event.to_dict())
+    user = current_user()
+    return jsonify(event.to_dict(include_changes=bool(user and (user.role == "admin" or user.id == event.creator_id))))
 
 @app.get("/api/filter-groups")
 def api_filter_groups():
@@ -954,13 +975,13 @@ EVENT_LIMITS = {
     "date": 20, "time": 10, "end": 10, "organizer": 100,
     "chat": 200, "contact": 200, "card_color": 20, "card_emoji": 20, "tagline": 80
 }
-EVENT_REQUIRED = ("title", "summary", "description", "activity", "type", "duration", "place", "room", "date", "time", "end", "organizer")
+EVENT_REQUIRED = ("title", "summary", "description", "activity", "type", "duration", "place", "room", "date", "time", "end", "organizer", "contact")
 
 
 def event_form(data, user_id, existing=None):
     values = {}
     for field, limit in EVENT_LIMITS.items():
-        value = data.get(field, "")
+        value = data.get(field, getattr(existing, field, "") if existing and field in {"chat", "tagline"} else "")
         if value is None and field not in EVENT_REQUIRED:
             value = ""
         if not isinstance(value, str) or len(value.strip()) > limit:
@@ -987,14 +1008,27 @@ def event_form(data, user_id, existing=None):
     values["card_color"] = values["card_color"] or "cream"
     if values["card_color"] not in {"cream", "blue", "green", "lavender", "peach", "pink", "dark"}:
         return None, (jsonify(error="Выберите цвет карточки из списка"), 400)
-    for field in ("chat", "contact"):
-        if values[field]:
-            try:
-                url = urlsplit(values[field])
-                if url.scheme not in {"http", "https"} or not url.netloc or url.username or any(c.isspace() for c in values[field]):
-                    raise ValueError()
-            except ValueError:
-                return None, (jsonify(error="Контакты должны быть корректными HTTP(S) ссылками"), 400)
+    raw_contact = values["contact"]
+    if raw_contact.startswith("@"):
+        if not re.fullmatch(r"@[A-Za-z0-9_]{1,32}", raw_contact):
+            return None, (jsonify(error="Проверьте ник Telegram"), 400)
+        values["contact"] = "https://t.me/" + raw_contact[1:]
+    elif valid_letovo_email(normalize_email(raw_contact)):
+        values["contact"] = normalize_email(raw_contact)
+    else:
+        try:
+            url = urlsplit(raw_contact)
+            if url.scheme not in {"http", "https"} or not url.netloc or url.username or any(c.isspace() for c in raw_contact):
+                raise ValueError()
+        except ValueError:
+            return None, (jsonify(error="Укажите ник Telegram с @ или школьную почту"), 400)
+    if values["chat"]:
+        try:
+            url = urlsplit(values["chat"])
+            if url.scheme not in {"http", "https"} or not url.netloc or url.username or any(c.isspace() for c in values["chat"]):
+                raise ValueError()
+        except ValueError:
+            return None, (jsonify(error="Проверьте ссылку на чат"), 400)
     photo = data.get("image_url", existing.image_url if existing else None) or None
     if photo and not (existing and photo == existing.image_url):
         match = re.fullmatch(r"/media/([a-f0-9]{32})\.jpg", photo) if isinstance(photo, str) else None
@@ -1028,7 +1062,7 @@ def api_edit_event(event_id):
     user = current_user()
     if not user:
         return jsonify(error="Необходимо войти в аккаунт"), 401
-    event = db.get_or_404(Event, event_id)
+    event = Event.query.filter_by(id=event_id).with_for_update().first_or_404()
     if event.creator_id != user.id:
         return jsonify(error="Вы можете редактировать только свои мероприятия"), 403
     if event.status in {"rejected", "past"}:
@@ -1036,6 +1070,17 @@ def api_edit_event(event_id):
     values, error = event_form(request.get_json(silent=True) or {}, user.id, event)
     if error:
         return error
+    if event.status == "approved":
+        change = db.session.get(EventChange, event.id)
+        if not change:
+            change = EventChange(event_id=event.id)
+            db.session.add(change)
+        change.payload = json.dumps(values, ensure_ascii=False)
+        change.version = uuid.uuid4().hex
+        change.state = "pending"
+        change.comment = None
+        db.session.commit()
+        return jsonify(success=True, message="Изменения отправлены на модерацию. Опубликованная версия остаётся доступна.", event=event.to_dict(include_changes=True))
     values.update(status="pending", moderation_comment=None)
     changed = Event.query.filter_by(id=event_id, creator_id=user.id, status=event.status).update(values, synchronize_session=False)
     if not changed:
@@ -1054,6 +1099,7 @@ def delete_event(event_id):
     event = db.get_or_404(Event, event_id)
     if event.creator_id != user.id and user.role != "admin":
         return jsonify(error="Вы можете удалять только свои мероприятия"), 403
+    EventChange.query.filter_by(event_id=event_id).delete(synchronize_session=False)
     Comment.query.filter_by(event_id=event_id).delete(synchronize_session=False)
     Registration.query.filter_by(event_id=event_id).delete(synchronize_session=False)
     db.session.delete(event)
@@ -1121,7 +1167,7 @@ def my_events():
     ).all()
 
     return jsonify({
-        "events": [event.to_dict() for event in events]
+        "events": [event.to_dict(include_changes=True) for event in events]
     })
 
 @app.post("/api/auth/register/request")
@@ -1439,7 +1485,7 @@ def admin_events():
     ).all()
 
     return jsonify({
-        "events": [event.to_dict() for event in events]
+        "events": [event.to_dict(include_changes=True) for event in events]
     })
 
 
@@ -1482,19 +1528,48 @@ def approve_event(event_id):
     if error:
         return error
 
-    event = Event.query.get_or_404(event_id)
+    event = Event.query.filter_by(id=event_id).with_for_update().first_or_404()
 
-    if event.status != "pending":
-        return jsonify(error="Одобрить можно только событие, ожидающее модерации"), 409
-    event.status = "approved"
-    event.moderation_comment = None
-
+    change = db.session.get(EventChange, event.id)
+    if event.status == "approved" and change and change.state == "pending":
+        if (request.get_json(silent=True) or {}).get("change_id") != change.version:
+            return jsonify(error="Автор обновил изменения. Обновите админ-панель перед одобрением."), 409
+        values = json.loads(change.payload)
+        if values["date"] < school_today().isoformat():
+            return jsonify(error="Дата изменений уже прошла. Верните изменения автору для исправления."), 409
+        for field, value in values.items():
+            setattr(event, field, value)
+        event.moderation_comment = None
+        db.session.delete(change)
+    elif event.status == "pending":
+        event.status = "approved"
+        event.moderation_comment = None
+    else:
+        return jsonify(error="Нет изменений, ожидающих одобрения"), 409
     db.session.commit()
+    return jsonify(success=True, event=event.to_dict(include_changes=True))
 
-    return jsonify({
-        "success": True,
-        "event": event.to_dict()
-    })
+
+@app.post("/api/admin/events/<int:event_id>/reject-change")
+def reject_event_change(event_id):
+    user, error = admin_required()
+    if error:
+        return error
+    event = Event.query.filter_by(id=event_id).with_for_update().first_or_404()
+    change = db.session.get(EventChange, event_id)
+    if event.status != "approved" or not change or change.state != "pending":
+        return jsonify(error="Нет изменений, ожидающих модерации"), 409
+    data = request.get_json(silent=True) or {}
+    if data.get("change_id") != change.version:
+        return jsonify(error="Автор обновил изменения. Обновите админ-панель."), 409
+    destination = data.get("destination")
+    comment = data.get("comment")
+    if destination not in {"rejected", "revision"} or not isinstance(comment, str) or not comment.strip() or len(comment) > 2000:
+        return jsonify(error="Выберите решение и добавьте комментарий до 2000 символов"), 400
+    change.state = destination
+    change.comment = comment.strip()
+    db.session.commit()
+    return jsonify(success=True, event=event.to_dict(include_changes=True))
 
 @app.post("/api/admin/events/<int:event_id>/reject")
 @app.post("/api/admin/events/<int:event_id>/unpublish")
@@ -1512,6 +1587,7 @@ def reject_event(event_id):
     comment = data.get("comment", "")
     if not isinstance(comment, str) or not comment.strip() or len(comment) > 2000:
         return jsonify(error="Добавьте комментарий от 1 до 2000 символов"), 400
+    EventChange.query.filter_by(event_id=event_id).delete(synchronize_session=False)
     old_status = event.status
     changed = Event.query.filter_by(id=event.id, status=old_status).update(
         {"status": destination, "moderation_comment": comment.strip()}, synchronize_session=False)
