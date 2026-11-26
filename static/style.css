@@ -948,8 +948,8 @@ header .auth-user .auth-account {display:inline-flex;align-items:center;gap:8px;
 .about-actions a {display:inline-flex;align-items:center;text-decoration:none;padding:10px 16px;border-radius:4px;border:1px solid var(--outline)}
 
 /* Keep the entrance focused on its two actions. */
-body.is-entry .site-header {display:none}
-body.is-entry main {min-height:100svh;display:flex;align-items:center;justify-content:center}
+body.is-entry .site-header {display:grid}
+body.is-entry main {min-height:calc(100svh - 80px);display:flex;align-items:center;justify-content:center}
 body.is-entry .home-start {width:100%;min-height:0;padding-bottom:0}
 .profile-identity h2 {color:var(--black);-webkit-text-stroke:3px var(--white);paint-order:stroke fill;text-shadow:1px 1px var(--white),-1px -1px var(--white),1px -1px var(--white),-1px 1px var(--white)}
 .mobile-account,.menu-toggle {display:none}
@@ -975,26 +975,17 @@ body.is-entry .home-start {width:100%;min-height:0;padding-bottom:0}
 .crop-dialog .crop-canvas.is-dragging {cursor:grabbing}
 
 /* Profile swatches follow the soft event palette. Photos keep their original colors. */
-.event-card-burgundy {background:#dfb3bf;border-color:#bd8998}
+.event-card-burgundy {background:#f3e3e6;border-color:#dbc2c9}
 [data-theme="dark"] .event-card-burgundy {background:#443039;border-color:#73505e}
 [data-theme="dark"] .profile-banner,
 [data-theme="dark"] .avatar-initials,
-[data-theme="dark"] .auth-avatar-placeholder {background:color-mix(in srgb,var(--profile-selected-color,#e3cd86) 65%,var(--white))!important}
+[data-theme="dark"] .auth-avatar-placeholder {background:color-mix(in srgb,var(--profile-selected-color,#e3cd86) 40%,var(--white))!important}
 .comments-panel form > button[type="submit"] {margin-top:14px}
-/* Desktop filters remain in the original sidebar; mobile controls use normal flow. */
-.mobile-filter-toggle.secondary,.mobile-filter-close.plain {display:none}
-@media(min-width:761px){
-  #catalog-filter-panel {grid-column:1;grid-row:1}
-  .catalog-layout > #results {grid-column:2;grid-row:1;min-width:0}
-}
+.mobile-filter-toggle,.mobile-filter-close {display:none}
 @media(max-width:760px){
-  .mobile-filter-toggle.secondary {display:inline-flex;position:sticky;top:8px;z-index:20;align-self:flex-start;align-items:center;gap:6px;padding:10px 14px;background:var(--white);opacity:1;border:1px solid var(--black);border-radius:10px}
-  #catalog-filter-panel {display:none;position:static;width:100%;max-height:none;padding:16px;background:var(--white);opacity:1;border:1px solid var(--outline);border-radius:12px;box-sizing:border-box}
+  .catalog-layout {padding-top:48px}
+  .mobile-filter-toggle {display:inline-flex;position:fixed;top:calc(76px + env(safe-area-inset-top));left:12px;z-index:85;align-items:center;gap:6px;padding:10px 14px;background:var(--white);border:1px solid var(--black);box-shadow:0 3px 16px #0003;border-radius:10px}
+  #catalog-filter-panel {display:none;position:fixed;left:12px;top:calc(126px + env(safe-area-inset-top));z-index:84;width:min(360px,calc(100vw - 24px));max-height:calc(100dvh - 148px);overflow:auto;padding:16px;background:var(--white);border:1px solid var(--outline);border-radius:12px;box-shadow:0 8px 24px #0003}
   #catalog-filter-panel.is-open {display:block}
-  .mobile-filter-close.plain {display:block;margin-bottom:16px}
+  .mobile-filter-close {display:block;margin-bottom:16px}
 }
-/* Separate the file control from the cropped image preview. */
-.profile-upload > .field {display:flex;min-width:0;margin-bottom:0}
-.profile-upload input[type="file"] {display:block;width:100%;box-sizing:border-box}
-.profile-upload [data-profile-preview]:not(:empty) {margin-top:18px;display:flow-root}
-.profile-upload [data-profile-preview] > img {display:block;position:static;transform:none;margin:0;max-width:100%}

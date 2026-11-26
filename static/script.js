@@ -1744,7 +1744,7 @@ function createPage(editEvent = null) {
           <h2>Контакты</h2>
 
           <div class="form-grid">
-            <label class="field">
+            <label class="field full">
               Имя организатора
               <input name="organizer" required maxlength="80">
             </label>
