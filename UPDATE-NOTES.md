@@ -157,3 +157,14 @@
 Это не заменяет визуальную проверку в браузере. Реальная отправка почты,
 PostgreSQL/Neon, развёртывание и выполнение расписания на хостинге здесь не проверялись.
 Неиспользуемые изображения из отменённых загрузок автоматически не очищаются.
+
+## 2026-11-26 — Navigation and backend structure
+
+- Kept the site header visible on the `#home` entry screen; the entry content is now centered below the header.
+- Reordered primary navigation: Home, Event map, Event list, Add event.
+- Split SQLAlchemy initialization into `extensions.py` and model classes into `models.py`.
+- Split HTTP endpoints into `routes/` modules: pages, events, registrations, auth, profile, admin, and media.
+- Kept `main.py` as the Flask application entry point (`main:app`) to preserve existing deployment commands and Vercel configuration.
+- Kept the existing database files and schema unchanged.
+- Static validation: Python compilation and all seven JavaScript syntax checks passed. Runtime/unit tests still need to be run in the project's configured environment with dependencies installed.
+

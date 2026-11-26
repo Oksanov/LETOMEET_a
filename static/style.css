@@ -948,8 +948,8 @@ header .auth-user .auth-account {display:inline-flex;align-items:center;gap:8px;
 .about-actions a {display:inline-flex;align-items:center;text-decoration:none;padding:10px 16px;border-radius:4px;border:1px solid var(--outline)}
 
 /* Keep the entrance focused on its two actions. */
-body.is-entry .site-header {display:none}
-body.is-entry main {min-height:100svh;display:flex;align-items:center;justify-content:center}
+body.is-entry .site-header {display:grid}
+body.is-entry main {min-height:calc(100svh - 80px);display:flex;align-items:center;justify-content:center}
 body.is-entry .home-start {width:100%;min-height:0;padding-bottom:0}
 .profile-identity h2 {color:var(--black);-webkit-text-stroke:3px var(--white);paint-order:stroke fill;text-shadow:1px 1px var(--white),-1px -1px var(--white),1px -1px var(--white),-1px 1px var(--white)}
 .mobile-account,.menu-toggle {display:none}
