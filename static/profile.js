@@ -19,7 +19,7 @@ function profilePhotoField(key) {
   const value = currentUser[`${key}_color`];
   const selected = PROFILE_EVENT_COLORS.some(([, , hex]) => hex === value) ? value : PROFILE_EVENT_COLORS[0][2];
   const hasPhoto = Boolean(currentUser[`${key}_url`]);
-  const label = key === 'banner' ? 'Цвет баннера' : 'Фон аватарки';
+  const label = key === 'banner' ? 'Баннер' : 'Аватарка';
   const explanation = key === 'banner'
     ? 'Для того, чтобы поставить цветной баннер, нужно удалить фотографию.'
     : 'Для того, чтобы поставить цветной фон аватарки, нужно удалить фотографию.';
@@ -30,7 +30,7 @@ function profilePhotoField(key) {
       <div class="color-swatches">${PROFILE_EVENT_COLORS.map(([name, title, hex]) => `<label class="color-option"><input type="radio" name="${key}_color" value="${hex}" ${selected === hex ? 'checked' : ''}><span class="color-swatch event-card-${name}" aria-hidden="true"></span><span>${title}</span></label>`).join('')}</div>
     </fieldset>
     <p class="small muted" id="${key}-color-help" data-profile-color-help="${key}" ${hasPhoto ? '' : 'hidden'}>${explanation}</p>
-    <label class="field">${key === 'avatar' ? '' : 'Баннер'}<input aria-label="${key === 'avatar' ? 'Добавить фото аватара' : 'Добавить фото баннера'}" type="file" data-profile-file="${key}" accept="image/jpeg,image/png,image/webp"></label>
+    <label class="field"><input aria-label="${key === 'avatar' ? 'Добавить фото аватара' : 'Добавить фото баннера'}" type="file" data-profile-file="${key}" accept="image/jpeg,image/png,image/webp"></label>
     <div data-profile-preview="${key}"></div><button class="secondary" type="button" data-profile-remove="${key}">Убрать ${key === 'avatar' ? 'фото' : 'баннер'}</button>
   </div>`;
 }
@@ -45,7 +45,7 @@ function profileMarkup() {
 
         ${['avatar','banner'].map(profilePhotoField).join('')}
         <p class="error" id="profile-error" role="alert"></p>
-        <button class="primary" type="submit">Сохранить профиль</button>
+        <button class="primary" type="submit">Сохранить</button>
       </form>
     </details>
   </section>`;

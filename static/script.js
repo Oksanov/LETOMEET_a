@@ -832,7 +832,7 @@ async function accountPage() {
 
       ${profileMarkup()}
       <section class="form-section">
-        <h2>Мои мероприятия</h2>
+        <h2>Созданные мероприятия</h2>
 
         <div id="my-events">
           Загрузка...
@@ -840,7 +840,7 @@ async function accountPage() {
       </section>
 
       <section class="form-section">
-        <h2>Мои записи</h2>
+        <h2>Куда я записан(а)?</h2>
 
         <div id="my-registrations">
           Загрузка...
@@ -2455,7 +2455,7 @@ async function mapPage(focusedId = null) {
         </div>
       </div>
     </div>
-    <p class="small muted">Перетаскивайте карту мышью или одним пальцем. Приближайте колёсиком мыши, двумя пальцами или кнопками − и +.</p>
+    <p class="small muted">Перетаскивайте карту мышью или двумя пальцами. Приближайте колёсиком мыши, двумя пальцами или кнопками − и +.</p>
     <div class="map-layout"><div class="map-scroll" tabindex="0" role="region" aria-label="План школы. Перетаскивайте мышью или пальцем; с клавиатуры используйте стрелки" hidden>
       <div class="map-canvas">${schoolMap()}</div>
     </div>

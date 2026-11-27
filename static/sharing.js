@@ -19,7 +19,6 @@ function eventShareMarkup(event) {
       <button class="secondary" type="button" data-copy-link>Скопировать ссылку</button>
       <button class="primary" type="button" data-native-share hidden>Другие приложения</button>
     </div>
-    <p class="small muted">Скопируйте ссылку и отправьте её в сообщении. На телефоне можно выбрать приложение через «Другие приложения».</p>
     <label class="field share-link">Ссылка на событие<input type="text" readonly value="${escapeHtml(data.url)}" aria-label="Ссылка на событие"></label>
     <p class="share-status small" role="status" aria-live="polite"></p>
   </section>`;
