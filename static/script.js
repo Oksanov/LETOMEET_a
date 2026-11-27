@@ -1057,26 +1057,21 @@ function aboutPage() {
     <article class="about-page" aria-labelledby="about-title">
       <a class="back" href="#home">← К началу</a>
       <h1 id="about-title">О проекте</h1>
-      <p class="about-greeting">Всем привет! 🐱</p>
-      <p>LETOMEET — сайт, на котором можно найти компанию в Летово, присоединиться к чьей-то встрече или собрать свою.</p>
-      <p>Настолки, волейбол, совместный просмотр, рисование или просто разговоры — здесь можно предложить то, чем хочется заняться, и позвать остальных. Идея простая: чтобы было понятно, кто, где и когда собирается и можно ли присоединиться.</p>
-
+      <p>Всем привет! 🐱</p>
+      <p>LETOMEET — это сайт, на котором можно найти интересное тебе событие, присоединиться к чьей-то встрече или собрать свою компанию. Будь то настолки, волейбол, совместный просмотр фильмов, рисование или просто поговорить — здесь можно предложить всё, чем хочется заняться, и позвать остальных!</p>
+      <p>Идея проста: чтобы можно понять что, где проводиться и кто и когда это организовывает и можно ли к ним присоединиться :D</p>
       <section aria-labelledby="about-features">
         <h2 id="about-features">Что здесь можно делать</h2>
         <ul>
-          <li>Посмотреть события на карте школы или в каталоге. Выбрать день, место и то, что интересно.</li>
-          <li>Нажать «Я пойду» и связаться с организатором, если хочется что-то уточнить.</li>
-          <li>Добавить своё событие: написать, что планируется, где встречаемся и во сколько. После проверки оно появится на сайте.</li>
-        </ul>
-      </section>
-
+          <li>Посмотреть все события на карте школы или в каталоге; отфильтровав события по месту, типу и времени, выбрать то, что интересно</li>
+          <li>Записаться на событие, нажав «Я пойду» на странице события и связаться с организатором по необходимости</li>
+          <li>Добавить своё событие: после проверки оно появится на сайте.</li>
+        </ul></section>
       <section aria-labelledby="about-create">
-        <h2 id="about-create">Кстати, создать событие может любой</h2>
-        <p>Для входа нужна школьная почта. Дальше — название, описание, время и место. Очень хочется, чтобы из описания было понятно, что вы собираетесь делать и кому можно прийти 🫡</p>
-        <p>Свои мероприятия можно редактировать в личном кабинете. Если администратор попросит что-то исправить, его комментарий тоже будет там.</p>
-      </section>
-
-      <p class="about-invitation">Приходите, зовите друзей, предлагайте своё :D</p>
+        <h2 id="about-create">Кстати, создать событие может любой зараестрированный</h2>
+        <p>Вход по школьной почте. В своём аккаунте можно уже добавить событие — название, описание, время и место. Очень желательно, чтобы из описания было понятно, что конкретно вы собираетесь делать и кому, куда можно прийти 🫡</p>
+        <p>Если администратор попросит что-то исправить в событии для публикации, событие отправиться обратно в личный кабинет вместе с комментарием: нужно будет изменить и отправить снова на проверку. После публикации, свои мероприятия также можно редактировать в личном кабинете!</p></section>
+      <p class="about-invitation">Приходите, зовите друзей, предлагайте своё!!</p>
       <div class="actions about-actions">
         <a class="primary" href="#catalog">Каталог событий</a>
         <a class="secondary" href="#create">Добавить своё событие</a>
@@ -1099,7 +1094,7 @@ function welcomePage() {
       ${featured.length>1 ? '<div class="slider-controls"><button id="slide-prev" aria-label="Предыдущее событие">←</button><output id="slide-position" aria-live="polite">1 / '+featured.length+'</output><button id="slide-next" aria-label="Следующее событие">→</button></div>' : ''}</div>
       ${featured.length ? `<div class="trending-track" tabindex="0" aria-label="Листайте события свайпом или стрелками">${featured.map((e,i)=>`<article class="trend-slide" aria-label="${i+1} из ${featured.length}">
         <div class="trend-copy"><span class="trend-badge">${Number(e.count)>0 ? `${Number(e.count)} участников` : 'Будь первым участником'}</span><h3>${escapeHtml(e.title)}</h3><p>${escapeHtml(e.summary)}</p><p class="small">${e.regular?'Каждую неделю · ':''}${dateLabel(e.date)} · ${escapeHtml(e.time)}<br>${escapeHtml(e.place)} · ${escapeHtml(e.room)}</p><a class="primary" href="#event/${e.id}">Подробнее о событии ↗</a></div>
-        <div class="trend-art">${e.image_url?`<img src="${escapeHtml(e.image_url)}" alt="" ${i?'loading="lazy"':''} decoding="async">`:`<span aria-hidden="true">${escapeHtml(e.card_emoji||'✦')}</span><span class="trend-art-label">LETOMEET / ${String(i+1).padStart(2,'0')}</span>`}</div></article>`).join('')}</div>` : '<div class="trend-empty"><p>Пока нет предстоящих опубликованных событий.</p><a class="primary" href="#create">Предложить событие</a></div>'}
+        <div class="trend-art">${e.image_url?`<img src="${escapeHtml(e.image_url)}" alt="" ${i?'loading="lazy"':''} decoding="async">`:`<span aria-hidden="true">${escapeHtml(e.card_emoji||'✦')}</span><span class="trend-art-label">LETOMEET / ${String(i+1).padStart(2,'0')}</span>`}</div></article>`).join('')}</div>` : '<div class="trend-empty"><p>Пока нет предстоящих опубликованных событий.</p><a class="primary" href="#create">Добавить событие :D</a></div>'}
     </section>
     <div class="home-choices"><a class="home-choice" href="#catalog"><span>Каталог событий</span><span class="arrow" aria-hidden="true">↗</span></a><a class="home-choice" href="#create"><span>Добавить своё событие</span><span class="arrow" aria-hidden="true">+</span></a></div>
   </section>`;
